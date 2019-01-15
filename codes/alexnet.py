@@ -53,50 +53,39 @@ class AlexNet(nn.Module):
 
     @timeit
     def forward(self, x):
-        # x = self.features(x)
         x = self.conv1(x)
         x = self.relu1(x)
         x = self.norm1(x)
         x = self.pool1(x)
-        pool1 = x
 
         x = self.conv2(x)
         x = self.relu2(x)
         x = self.norm2(x)
         x = self.pool2(x)
-        pool2 = x
 
         x = self.conv3(x)
         x = self.relu3(x)
-        conv3 = x
 
         x = self.conv4(x)
         x = self.relu4(x)
-        conv4 = x
 
         x = self.conv5(x)
         x = self.relu5(x)
         x = self.pool5(x)
-        pool5 = x
 
         x = x.view(x.size(0), 256 * 6 * 6)
 
         x = self.fc6(x)
         x = self.relu6(x)
         x = self.dropout6(x)
-        fc6 = x
 
         x = self.fc7(x)
         x = self.relu7(x)
         x = self.dropout7(x)
-        fc7 = x
-        # x = self.classifier(x)
 
         x = self.fc8(x)
 
-        # return pool1, pool2, conv3, conv4, pool5, fc6, fc7, x
         return x
-        # return x,fc6, fc7
 
     @timeit
     def create_network(self):
@@ -130,29 +119,6 @@ class AlexNet(nn.Module):
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
 
-        # self.features = nn.Sequential(
-            # self.conv1,
-            # self.relu1,
-            # self.norm1,
-            # self.pool1,
-            # self.conv2,
-            # self.relu2,
-            # self.norm2,
-            # self.pool2,
-            # self.conv3,
-            # self.relu3,
-            # self.conv4,
-            # self.relu4,
-            # self.conv5,
-            # self.relu5,
-            # self.pool5,
-        # )
-        # self.classifier = nn.Sequential(
-            # self.fc6,
-            # self.dropout6,
-            # self.fc7,
-            # self.dropout7
-        # )
         print('\n==============================Network Structure=================================\n')
         print('pool1', self.pool1)
         print('pool2', self.pool2)
@@ -166,25 +132,7 @@ class AlexNet(nn.Module):
 
     def init_layer(self, name, net):
         # params = list(net.parameters())
-        if 'fc8' in name:
-            nn.init.xavier_uniform_(net.weight)
-            nn.init.constant_(net.bias, 0.0)
-
-        # if name in self.SKIP_LAYER:
-            # print('making {} layer from scratch'.format(name))
-            # nn.init.xavier_uniform_(net.weight)
-            # nn.init.constant_(net.bias, 0.0)
-            # # nn.init.xavier_uniform(net.bias)
-        # elif 'conv' in name:
-            # params[0].data = torch.from_numpy(self.weights_dict[name][0].transpose(3,2,0,1))
-            # params[1].data= torch.from_numpy(self.weights_dict[name][1])
-            # # print('params[0] : {}. params[1] : {}'.format(params[0].data, params[1].data))
-        # else:
-            # params[0].data= torch.from_numpy(self.weights_dict[name][0].transpose(1,0))
-            # params[1].data= torch.from_numpy(self.weights_dict[name][1])
-            # # print('params[0] : {}. params[1] : {}'.format(params[0].data, params[1].data))
-            # # print('weight[0] : {}. weight[1] : {}'.format(self.weights_dict[name][0], self.weights_dict[name][1]))
-
-        # self.var_dict[name] = [params[0], params[1]]
+        nn.init.xavier_uniform_(net.weight)
+        nn.init.constant_(net.bias, 0.0)
 
         return net

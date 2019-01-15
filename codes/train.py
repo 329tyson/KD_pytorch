@@ -21,13 +21,18 @@ softmax = nn.Softmax(dim = 1)
 
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
+# Small testset & test.csv
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
+
+# Generate training dataset
 training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/')
 training_generator = data.DataLoader(training_set, **params)
 
+# Generate validation dataset
 validation_set = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/')
 validation_generator = data.DataLoader(validation_set, **params)
 
+# Fetch lengths
 num_training = len(training_set)
 num_validation = len(validation_set)
 
@@ -62,6 +67,7 @@ optimizer= optim.SGD(
 for epoch in range(100):
     loss= 0.
     for x, y in training_generator:
+        # To CUDA tensors
         x = x.cuda().float()
         y = y.cuda() - 1
 
@@ -69,22 +75,7 @@ for epoch in range(100):
         optimizer.zero_grad()
 
         # Network output
-        # print(x[0])
         output = net(x)
-        # conv1, conv2, conv3, conv4, conv5, fc6, fc7, output = net(x)
-        # output, fc6, fc7 = net(x)
-
-        # print('conv1 : ', conv1[0])
-        # print('conv2 : ', conv2[0])
-        # print('conv3 : ', conv3[0])
-        # print('conv4 : ', conv4[0])
-        # print('conv5 : ', conv5[0])
-        # print('fc6   : ',fc6[0])
-        # print('fc7   : ',fc7[0])
-        # print('output: ',output[0])
-        # print(torch.max(output,1)[1][0])
-        # print(y[0])
-        # import ipdb; ipdb.set_trace()
 
 
         loss = lossfunction(output, y)
@@ -95,33 +86,28 @@ for epoch in range(100):
     hit_training = 0
     hit_validation = 0
     for x, y in training_generator:
+        # To CUDA tensors
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
 
+        # Count prediction hit on training set
         prediction = torch.max(output, 1)[1]
-        hit_training = np.sum(prediction.cpu().numpy() ==  y.numpy())
-
-        # print('\n===Training Samples\n')
-        # print(output[0])
-        # print(prediction[0])
-        # print(y[0])
+        hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
     for x, y in validation_generator:
+        # To CUDA tensors
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
 
+        # Count prediction hit on training set
         prediction = torch.max(output, 1)[1]
-        hit_validation = np.sum(prediction.cpu().numpy() ==  y.numpy())
-
-        # print('\n===Validation Samples\n')
-        # print(output[0])
-        # print(prediction[0])
+        hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
     # Trace
     print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
@@ -131,7 +117,7 @@ for epoch in range(100):
           .format((hit_validation/num_validation)*100, hit_validation, num_validation))
 
     # Log Tensorboard
-    # writer.add_scalar('GroundTruth loss', loss)
+    writer.add_scalar('GroundTruth loss', loss)
 
 print('Finished Training')
 writer.close()
