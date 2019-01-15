@@ -17,36 +17,33 @@ params = {'batch_size': 128,
 writer = SummaryWriter()
 
 weights_path = './bvlc_alexnet.npy'
-softmax = nn.Softmax(dim = 1)
+# softmax = nn.Softmax(dim = 1)
 
-preprocess = transforms.Compose([
-    transforms.ToTensor()
-])
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
-training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', preprocess)
+training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/')
 training_generator = data.DataLoader(training_set, **params)
 
-validation_set = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', preprocess)
+validation_set = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/')
 validation_generator = data.DataLoader(validation_set, **params)
 
 num_training = len(training_set)
 num_validation = len(validation_set)
 
-pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
-converted = net.state_dict()
-for lname, val in pretrained.items():
-    if 'conv' in lname:
-        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-        converted[lname+".bias"] = torch.from_numpy(val[1])
-    elif 'fc8' in lname:
-        continue
-    elif 'fc' in lname:
-        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
-        converted[lname+".bias"] = torch.from_numpy(val[1])
+# pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
+# converted = net.state_dict()
+# for lname, val in pretrained.items():
+    # if 'conv' in lname:
+        # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+        # converted[lname+".bias"] = torch.from_numpy(val[1])
+    # elif 'fc8' in lname:
+        # continue
+    # elif 'fc' in lname:
+        # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
+        # converted[lname+".bias"] = torch.from_numpy(val[1])
 
-net.load_state_dict(converted)
+# net.load_state_dict(converted)
 net.cuda()
 lossfunction = nn.CrossEntropyLoss()
 
@@ -62,7 +59,7 @@ optimizer= optim.SGD(
      lr=0.001,
      momentum = 0.9,
      weight_decay = 0.0005)
-for epoch in range(10):
+for epoch in range(100):
     loss= 0.
     for x, y in training_generator:
         x = x.cuda().float()
@@ -72,10 +69,10 @@ for epoch in range(10):
         optimizer.zero_grad()
 
         # Network output
+        # print(x[0])
         output = net(x)
         # conv1, conv2, conv3, conv4, conv5, fc6, fc7, output = net(x)
         # output, fc6, fc7 = net(x)
-        # print(output[0])
 
         # print('conv1 : ', conv1[0])
         # print('conv2 : ', conv2[0])
@@ -104,7 +101,6 @@ for epoch in range(10):
         prediction = torch.max(output, 1)[1]
         hit_training = np.sum(prediction.cpu().numpy() ==  y.numpy())
 
-        # print(prediction.cpu().numpy())
         # print('\n===Training Samples\n')
         # print(output[0])
         # print(prediction[0])
@@ -120,11 +116,15 @@ for epoch in range(10):
         prediction = torch.max(output, 1)[1]
         hit_validation = np.sum(prediction.cpu().numpy() ==  y.numpy())
 
+        # print('\n===Validation Samples\n')
+        # print(output[0])
+        # print(prediction[0])
+
     # Trace
-    print('Epoch : {}, training loss : {}'.format(epoch, loss))
+    print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
     print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
           .format((hit_training/num_training)*100, hit_training, num_training))
-    print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}'
+    print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
           .format((hit_validation/num_validation)*100, hit_validation, num_validation))
 
     # Log Tensorboard

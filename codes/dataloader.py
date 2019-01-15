@@ -28,7 +28,7 @@ def timeit(method):
 
 class CUBDataset(data.Dataset):
 
-    def __init__(self, csv_file, image_path, preprocess):
+    def __init__(self, csv_file, image_path):
         self.ROOT = os.path.dirname(os.path.realpath(__file__))
         self.CSV_FILE_PATH = os.path.abspath(os.path.join(self.ROOT, csv_file))
         self.IMAGE_PATH = os.path.abspath(os.path.join(self.ROOT, image_path))
@@ -69,11 +69,11 @@ class CUBDataset(data.Dataset):
     def transform(self, img_path, x_, y_, w_, h_):
 
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        b, g, r = cv2.split(image)
-        image = cv2.merge([r,g,b])
+        # b, g, r = cv2.split(image)
+        # image = cv2.merge([r,g,b])
         image = image[y_:y_+h_, x_:x_+w_]
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
-        image = image - self.IMG_MEAN
+        # image = image - self.IMG_MEAN
 
 
         y_crop = random.random() * 30
@@ -83,7 +83,13 @@ class CUBDataset(data.Dataset):
         x_crop = int(x_crop)
 
         image = image[0:227,0:227]
+        normalize = transforms.Normalize(mean=[0.406, 0.456, 0.485],
+                                         std=[0.225, 0.224, 0.229])
+        # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         # std=[0.229, 0.224, 0.225])
+
         image = transforms.ToTensor()(image)
+        image = normalize(image)
 
         # image = image[0:227,0:227]
 
