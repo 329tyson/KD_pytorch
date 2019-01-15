@@ -82,10 +82,12 @@ class AlexNet(nn.Module):
         x = x.view(x.size(0), 256 * 6 * 6)
 
         x = self.fc6(x)
+        x = self.relu6(x)
         x = self.dropout6(x)
         fc6 = x
 
         x = self.fc7(x)
+        x = self.relu7(x)
         x = self.dropout7(x)
         fc7 = x
         # x = self.classifier(x)
@@ -119,9 +121,11 @@ class AlexNet(nn.Module):
         self.pool5 = nn.MaxPool2d(kernel_size=3, stride=2)
 
         self.fc6 = self.init_layer('fc6', nn.Linear(256 * 6 * 6, 4096))
+        self.relu6 = nn.ReLU(inplace=True)
         self.dropout6 = nn.Dropout(p=self.KEEP_PROB)
 
         self.fc7 = self.init_layer('fc7', nn.Linear(4096,4096))
+        self.relu7 = nn.ReLU(inplace=True)
         self.dropout7 = nn.Dropout(p=self.KEEP_PROB)
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
@@ -161,10 +165,10 @@ class AlexNet(nn.Module):
         print('\n')
 
     def init_layer(self, name, net):
-        params = list(net.parameters())
-        # nn.init.constant_(net.weight, 0.0)
-        nn.init.xavier_uniform_(net.weight)
-        nn.init.constant_(net.bias, 0.0)
+        # params = list(net.parameters())
+        if 'fc8' in name:
+            nn.init.xavier_uniform_(net.weight)
+            nn.init.constant_(net.bias, 0.0)
 
         # if name in self.SKIP_LAYER:
             # print('making {} layer from scratch'.format(name))

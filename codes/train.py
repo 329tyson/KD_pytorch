@@ -17,7 +17,7 @@ params = {'batch_size': 128,
 writer = SummaryWriter()
 
 weights_path = './bvlc_alexnet.npy'
-# softmax = nn.Softmax(dim = 1)
+softmax = nn.Softmax(dim = 1)
 
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
@@ -31,19 +31,19 @@ validation_generator = data.DataLoader(validation_set, **params)
 num_training = len(training_set)
 num_validation = len(validation_set)
 
-# pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
-# converted = net.state_dict()
-# for lname, val in pretrained.items():
-    # if 'conv' in lname:
-        # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-        # converted[lname+".bias"] = torch.from_numpy(val[1])
-    # elif 'fc8' in lname:
-        # continue
-    # elif 'fc' in lname:
-        # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
-        # converted[lname+".bias"] = torch.from_numpy(val[1])
+pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
+converted = net.state_dict()
+for lname, val in pretrained.items():
+    if 'conv' in lname:
+        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+        converted[lname+".bias"] = torch.from_numpy(val[1])
+    elif 'fc8' in lname:
+        continue
+    elif 'fc' in lname:
+        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
+        converted[lname+".bias"] = torch.from_numpy(val[1])
 
-# net.load_state_dict(converted)
+net.load_state_dict(converted, strict = True)
 net.cuda()
 lossfunction = nn.CrossEntropyLoss()
 
@@ -81,8 +81,11 @@ for epoch in range(100):
         # print('conv5 : ', conv5[0])
         # print('fc6   : ',fc6[0])
         # print('fc7   : ',fc7[0])
+        # print('output: ',output[0])
         # print(torch.max(output,1)[1][0])
         # print(y[0])
+        # import ipdb; ipdb.set_trace()
+
 
         loss = lossfunction(output, y)
         loss.backward()
