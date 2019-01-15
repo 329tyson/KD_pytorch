@@ -33,6 +33,7 @@ class CUBDataset(data.Dataset):
         self.CSV_FILE_PATH = os.path.abspath(os.path.join(self.ROOT, csv_file))
         self.IMAGE_PATH = os.path.abspath(os.path.join(self.ROOT, image_path))
         self.IMG_MEAN = np.array([123.68, 116.779, 103.939])
+        # self.IMG_MEAN = np.array([103.939, 116.779, 123.68])
 
         self.load_csv()
 
