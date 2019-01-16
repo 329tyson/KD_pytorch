@@ -133,6 +133,7 @@ class CUBDataset(data.Dataset):
         low_image = [cv2.resize(img, (50, 50), interpolation=cv2.INTER_CUBIC) for img in image]
         low_image = [cv2.resize(img, (227, 227), interpolation=cv2.INTER_CUBIC) for img in low_image]
         low_image = [transforms.ToTensor()(img) for img in low_image]
+        low_image = np.stack(low_image, axis=0)
 
         image = [transforms.ToTensor()(img) for img in image]
         image = np.stack(image, axis = 0)
