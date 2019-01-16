@@ -3,10 +3,16 @@ import alexnet
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
+
 from tensorboardX import SummaryWriter
 from dataloader import CUBDataset
 from torchvision import transforms
 from torch.utils import data
+
+soft = nn.Softmax(dim=1)
+temperature = 3.0
+low_res_ratio = 4
 
 # Training Params
 params = {'batch_size': 128,
@@ -14,37 +20,28 @@ params = {'batch_size': 128,
           'num_workers': 6,
           'drop_last' : True}
 
-eval_params = {'batch_size': 1,
-          'shuffle': True,
-          'num_workers': 6,
-          'drop_last' : True}
+writer = SummaryWriter()
 
 weights_path = './bvlc_alexnet.npy'
 init_lr = 0.001
-decay_period = 20
-# writer = SummaryWriter(log_dir = 'runs/lr=' + str(init_lr) + '_decay_period=' + str(decay_period))
-writer = SummaryWriter()
-
 
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
+teacher_net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
 # Small testset & test.csv
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
 
 # Generate training dataset
-training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/')
 training_generator = data.DataLoader(training_set, **params)
 
-# Generate datasets for Test
-eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
-eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
-eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
-eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
+# Generate validation dataset
+validation_set = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/')
+validation_generator = data.DataLoader(validation_set, **params)
 
 # Fetch lengths
 num_training = len(training_set)
-num_eval_trainset = len(eval_trainset)
-num_eval_validationset = len(eval_validationset)
+num_validation = len(validation_set)
 
 # loading pretrained weights from bvlc_alexnet.npy
 pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
@@ -61,12 +58,19 @@ for lname, val in pretrained.items():
 
 net.load_state_dict(converted, strict = True)
 net.cuda()
+
+# TODO: fc8's weight should be assigned
+teacher_weight = torch.load('teachernet_43_epoch.pt')
+teacher_net.load_state_dict(teacher_weight, strict=True)
+teacher_net.cuda()
+teacher_net.eval()
+
 lossfunction = nn.CrossEntropyLoss()
 
 def decay_lr(optimizer, epoch):
+    lr = init_lr * (0.1 ** (epoch //25))
     for param_group in optimizer.param_groups:
-        # print('lr decayed exp : ',epoch // decay_period)
-        param_group['lr'] *=  (0.1 ** (epoch // decay_period))
+        param_group['lr'] = lr
 
 optimizer= optim.SGD(
     [{'params':net.conv1.parameters()},
@@ -85,80 +89,84 @@ for epoch in range(100):
     loss= 0.
     decay_lr(optimizer, epoch)
     net.train()
-    for x, _, y in training_generator:
+    for x, x_low, y in training_generator:
         # To CUDA tensors
         x = x.cuda().float()
+        x_low = x_low.cuda().float()
         y = y.cuda() - 1
+
+        teacher = teacher_net(x)
 
         # Calculate gradient && Backpropagate
         optimizer.zero_grad()
 
         # Network output
-        output = net(x)
+        student = net(x_low)
 
+        # KD_loss = lossfunction(torch.div(student, temperature), torch.div(teacher, temperature))
+        KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
+                                 F.softmax(teacher / temperature, dim=1))
 
-        loss = lossfunction(output, y)
+        KD_loss = torch.mul(KD_loss, temperature * temperature)
+
+        GT_loss = lossfunction(student, y)
+
+        # TODO: alpha? balance parameter?
+        loss = KD_loss + GT_loss
+
         loss.backward()
         optimizer.step()
+
     net.eval()
-    if (epoch + 1) % 10 > 0 :
-        writer.add_scalar('loss', loss, epoch)
-        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        continue
-    # Test only 10, 20, 30... epochs
+
+    # Test
     hit_training = 0
     hit_validation = 0
-    for x, _, y in eval_trainset_generator:
+    for _, x_low, y in training_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
-        x = x.cuda().float()
+        x_low = torch.squeeze(x_low)
+        x_low = x_low.cuda().float()
         y -= 1
 
         # Network output
-        output= net(x)
+        output = net(x_low)
+
         prediction = torch.mean(output, dim=0)
         prediction = prediction.cpu().detach().numpy()
 
         if np.argmax(prediction) == y:
             hit_training += 1
 
-        # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
-
-    for x, _, y in eval_validationset_generator:
+    for _, x_low, y in validation_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
-        x = x.cuda().float()
+        x_low = torch.squeeze(x_low)
+        x_low = x_low.cuda().float()
         y -= 1
 
         # Network output
-        output= net(x)
+        output = net(x_low)
+
         prediction = torch.mean(output, dim=0)
         prediction = prediction.cpu().detach().numpy()
 
         if np.argmax(prediction) == y:
-            hit_validation += 1
-
-        # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
+            hit_training += 1
 
     # Trace
-    acc_training = float(hit_training) / num_eval_trainset
-    acc_validation = float(hit_validation) / num_eval_validationset
+    acc_training = float(hit_training) / num_training
+    acc_validation = float(hit_validation) / num_validation
     print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
     print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-          .format(acc_training*100, hit_training, num_eval_trainset))
+          .format(acc_training*100, hit_training, num_training))
     print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-          .format(acc_validation*100, hit_validation, num_eval_validationset))
+          .format(acc_validation*100, hit_validation, num_validation))
 
     # Log Tensorboard
-    writer.add_scalar('loss', loss, epoch)
+    writer.add_scalar('GroundTruth loss', loss, epoch)
     writer.add_scalars('Accuracies',
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
-    # torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
+    # writer.add_scalar('Validation Accuracy', acc_validation, epoch)
 
 print('Finished Training')
 writer.close()
