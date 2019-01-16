@@ -21,7 +21,7 @@ eval_params = {'batch_size': 1,
 
 weights_path = './bvlc_alexnet.npy'
 init_lr = 0.001
-decay_period = 30
+decay_period = 20
 # writer = SummaryWriter(log_dir = 'runs/lr=' + str(init_lr) + '_decay_period=' + str(decay_period))
 writer = SummaryWriter()
 
@@ -64,9 +64,9 @@ net.cuda()
 lossfunction = nn.CrossEntropyLoss()
 
 def decay_lr(optimizer, epoch):
-    lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+        # print('lr decayed exp : ',epoch // decay_period)
+        param_group['lr'] *=  (0.1 ** (epoch // decay_period))
 
 optimizer= optim.SGD(
     [{'params':net.conv1.parameters()},
@@ -101,7 +101,11 @@ for epoch in range(100):
         loss.backward()
         optimizer.step()
     net.eval()
-    # Test
+    if (epoch + 1) % 10 > 0 :
+        writer.add_scalar('loss', loss, epoch)
+        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        continue
+    # Test only 10, 20, 30... epochs
     hit_training = 0
     hit_validation = 0
     for x, y in eval_trainset_generator:
@@ -150,7 +154,7 @@ for epoch in range(100):
           .format(acc_validation*100, hit_validation, num_eval_validationset))
 
     # Log Tensorboard
-    writer.add_scalar('GroundTruth loss', loss, epoch)
+    writer.add_scalar('loss', loss, epoch)
     writer.add_scalars('Accuracies',
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
