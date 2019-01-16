@@ -28,11 +28,12 @@ def timeit(method):
 
 class CUBDataset(data.Dataset):
 
-    def __init__(self, csv_file, image_path):
+    def __init__(self, csv_file, image_path, trainable = True):
         self.ROOT = os.path.dirname(os.path.realpath(__file__))
         self.CSV_FILE_PATH = os.path.abspath(os.path.join(self.ROOT, csv_file))
         self.IMAGE_PATH = os.path.abspath(os.path.join(self.ROOT, image_path))
         self.IMG_MEAN = np.array([123.68, 116.779, 103.939])
+        self.Trainable= trainable
         # self.IMG_MEAN = np.array([103.939, 116.779, 123.68])
 
         self.load_csv()
@@ -44,14 +45,22 @@ class CUBDataset(data.Dataset):
         img_path = self.filePath[idx]
         img_label = self.labels[idx]
 
-        # print(img_path)
-        image = self.transform(
-            img_path,
-            self.Bbox[idx][0],
-            self.Bbox[idx][1],
-            self.Bbox[idx][2],
-            self.Bbox[idx][3]
-        )
+        if self.Trainable is True:
+            image = self.transform(
+                img_path,
+                self.Bbox[idx][0],
+                self.Bbox[idx][1],
+                self.Bbox[idx][2],
+                self.Bbox[idx][3]
+            )
+        else:
+            image = self.generateTest(
+                img_path,
+                self.Bbox[idx][0],
+                self.Bbox[idx][1],
+                self.Bbox[idx][2],
+                self.Bbox[idx][3]
+            )
 
         return image, img_label
 
@@ -76,6 +85,9 @@ class CUBDataset(data.Dataset):
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
         image = image - self.IMG_MEAN
 
+        # Random flip
+        # if random.random() > 0.5 :
+            # image = cv2.flip(image,0)
 
         y_crop = random.random() * 30
         y_crop = int(y_crop)
@@ -84,18 +96,38 @@ class CUBDataset(data.Dataset):
         x_crop = int(x_crop)
 
         image = image[y_crop:y_crop + 227,x_crop:x_crop +227]
-        # normalize = transforms.Normalize(mean=[0.406, 0.456, 0.485],
-                                         # std=[0.225, 0.224, 0.229])
-        # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         # std=[0.229, 0.224, 0.225])
 
         image = transforms.ToTensor()(image)
-        # image = normalize(image)
 
-        # image = image[0:227,0:227]
-
+        # Low res
         # image = cv2.resize(image, (50,50), interpolation=cv2.INTER_CUBIC)
         # image = cv2.resize(image, (227,227), interpolation=cv2.INTER_CUBIC)
+
+        return image
+
+    def generateTest(self, img_path, x_, y_, w_, h_):
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        image = image[y_:y_+h_, x_:x_+w_]
+        image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
+        image = image - self.IMG_MEAN
+
+        img1 = image[0:227, 0:227]
+        img2 = image[29:256, 0:227]
+        img3 = image[0:227, 29:256]
+        img4 = image[29:256, 29:256]
+        img5 = image[14:241, 14:241]
+
+        img6 = cv2.flip(img1,1)
+        img7 = cv2.flip(img2,1)
+        img8 = cv2.flip(img3,1)
+        img9 = cv2.flip(img4,1)
+        img10 = cv2.flip(img5,1)
+
+        # print('image 1 shape : ',img1.shape)
+        # print('image 6 shape : ',img6.shape)
+        image = [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
+        image = [transforms.ToTensor()(img) for img in image]
+        image = np.stack(image, axis = 0)
 
         return image
 

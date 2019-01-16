@@ -91,12 +91,12 @@ class AlexNet(nn.Module):
     def create_network(self):
         self.conv1 = self.init_layer('conv1', nn.Conv2d(3, 96, kernel_size=11, stride=4))
         self.relu1 = nn.ReLU(inplace=True)
-        self.norm1 = nn.LocalResponseNorm(size=2, alpha=2e-05, beta=0.75, k=1.0)
+        self.norm1 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
 
         self.conv2 = self.init_layer('conv2', nn.Conv2d(96, 256, kernel_size=5, padding=2, groups=2))
         self.relu2 = nn.ReLU(inplace=True)
-        self.norm2 = nn.LocalResponseNorm(size=2, alpha=2e-05, beta=0.75, k=1.0)
+        self.norm2 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2)
 
         self.conv3 = self.init_layer('conv3', nn.Conv2d(256, 384, kernel_size=3, padding=1))
@@ -133,6 +133,7 @@ class AlexNet(nn.Module):
     def init_layer(self, name, net):
         # params = list(net.parameters())
         nn.init.xavier_uniform_(net.weight)
+        # nn.init.xavier_uniform_(net.bias)
         nn.init.constant_(net.bias, 0.0)
 
         return net
