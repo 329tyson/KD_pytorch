@@ -64,9 +64,10 @@ net.cuda()
 lossfunction = nn.CrossEntropyLoss()
 
 def decay_lr(optimizer, epoch):
+    lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
-        # print('lr decayed exp : ',epoch // decay_period)
-        param_group['lr'] *=  (0.1 ** (epoch // decay_period))
+        param_group['lr'] = lr
+    optimizer.param_groups[7]['lr'] = lr * 10
 
 optimizer= optim.SGD(
     [{'params':net.conv1.parameters()},
