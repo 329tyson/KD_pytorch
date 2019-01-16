@@ -3,10 +3,13 @@ import alexnet
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from dataloader import CUBDataset
 from torchvision import transforms
 from torch.utils import data
+
+temperature = 3.0
 
 # Training Params
 params = {'batch_size': 128,
@@ -27,6 +30,7 @@ writer = SummaryWriter()
 
 
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
+teacher_net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
 # Small testset & test.csv
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
@@ -61,6 +65,13 @@ for lname, val in pretrained.items():
 
 net.load_state_dict(converted, strict = True)
 net.cuda()
+
+# TODO: fc8's weight should be assigned
+teacher_weight = torch.load('teachernet_43_epoch.pt')
+teacher_net.load_state_dict(teacher_weight, strict=True)
+teacher_net.cuda()
+teacher_net.eval()
+
 lossfunction = nn.CrossEntropyLoss()
 
 def decay_lr(optimizer, epoch):
@@ -85,33 +96,45 @@ for epoch in range(100):
     loss= 0.
     decay_lr(optimizer, epoch)
     net.train()
-    for x, _, y in training_generator:
+    for x, x_low, y in training_generator:
         # To CUDA tensors
         x = x.cuda().float()
+        x_low = x_low.cuda().float()
         y = y.cuda() - 1
+
+        teacher = teacher_net(x)
 
         # Calculate gradient && Backpropagate
         optimizer.zero_grad()
 
         # Network output
-        output = net(x)
+        student = net(x_low)
+        # KD_loss = lossfunction(torch.div(student, temperature), torch.div(teacher, temperature))
+        KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
+                                 F.softmax(teacher / temperature, dim=1))
 
+        KD_loss = torch.mul(KD_loss, temperature * temperature)
 
-        loss = lossfunction(output, y)
+        GT_loss = lossfunction(student, y)
+
+        # TODO: alpha? balance parameter?
+        loss = KD_loss + GT_loss
+
         loss.backward()
         optimizer.step()
     net.eval()
+
     # Test
     hit_training = 0
     hit_validation = 0
-    for x, _, y in eval_trainset_generator:
+    for _, x_low, y in eval_trainset_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
-        x = x.cuda().float()
+        x_low = torch.squeeze(x_low)
+        x_low = x_low.cuda().float()
         y -= 1
 
         # Network output
-        output= net(x)
+        output= net(x_low)
         prediction = torch.mean(output, dim=0)
         prediction = prediction.cpu().detach().numpy()
 
@@ -122,14 +145,14 @@ for epoch in range(100):
         # prediction = torch.max(output, 1)[1]
         # hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
-    for x, _, y in eval_validationset_generator:
+    for _, x_low, y in eval_validationset_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
-        x = x.cuda().float()
+        x_low = torch.squeeze(x_low)
+        x_low = x_low.cuda().float()
         y -= 1
 
         # Network output
-        output= net(x)
+        output= net(x_low)
         prediction = torch.mean(output, dim=0)
         prediction = prediction.cpu().detach().numpy()
 
