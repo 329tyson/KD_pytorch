@@ -46,7 +46,7 @@ class CUBDataset(data.Dataset):
         img_label = self.labels[idx]
 
         if self.Trainable is True:
-            image = self.transform(
+            image, low_image = self.transform(
                 img_path,
                 self.Bbox[idx][0],
                 self.Bbox[idx][1],
@@ -54,7 +54,7 @@ class CUBDataset(data.Dataset):
                 self.Bbox[idx][3]
             )
         else:
-            image = self.generateTest(
+            image, low_image = self.generateTest(
                 img_path,
                 self.Bbox[idx][0],
                 self.Bbox[idx][1],
@@ -62,7 +62,7 @@ class CUBDataset(data.Dataset):
                 self.Bbox[idx][3]
             )
 
-        return image, img_label
+        return image, low_image, img_label
 
     @timeit
     def load_csv(self):
@@ -97,13 +97,16 @@ class CUBDataset(data.Dataset):
 
         image = image[y_crop:y_crop + 227,x_crop:x_crop +227]
 
-        image = transforms.ToTensor()(image)
+        # image = transforms.ToTensor()(image)
 
         # Low res
-        # image = cv2.resize(image, (50,50), interpolation=cv2.INTER_CUBIC)
-        # image = cv2.resize(image, (227,227), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(image, (50,50), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(low_image, (227,227), interpolation=cv2.INTER_CUBIC)
 
-        return image
+        image = transforms.ToTensor()(image)
+        low_image = transforms.ToTensor()(low_image)
+
+        return image, low_image
 
     def generateTest(self, img_path, x_, y_, w_, h_):
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
@@ -126,8 +129,13 @@ class CUBDataset(data.Dataset):
         # print('image 1 shape : ',img1.shape)
         # print('image 6 shape : ',img6.shape)
         image = [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
+
+        low_image = [cv2.resize(img, (50, 50), interpolation=cv2.INTER_CUBIC) for img in image]
+        low_image = [cv2.resize(img, (227, 227), interpolation=cv2.INTER_CUBIC) for img in low_image]
+        low_image = [transforms.ToTensor()(img) for img in low_image]
+
         image = [transforms.ToTensor()(img) for img in image]
         image = np.stack(image, axis = 0)
 
-        return image
+        return image, low_image
 

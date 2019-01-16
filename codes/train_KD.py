@@ -14,17 +14,10 @@ params = {'batch_size': 128,
           'num_workers': 6,
           'drop_last' : True}
 
-eval_params = {'batch_size': 1,
-          'shuffle': True,
-          'num_workers': 6,
-          'drop_last' : True}
-
-weights_path = './bvlc_alexnet.npy'
-init_lr = 0.001
-decay_period = 30
-# writer = SummaryWriter(log_dir = 'runs/lr=' + str(init_lr) + '_decay_period=' + str(decay_period))
 writer = SummaryWriter()
 
+weights_path = './bvlc_alexnet.npy'
+softmax = nn.Softmax(dim = 1)
 
 net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
@@ -32,21 +25,17 @@ net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
 
 # Generate training dataset
-training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/')
 training_generator = data.DataLoader(training_set, **params)
 
-# Generate datasets for Test
-eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
-eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
-eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
-eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
+# Generate validation dataset
+validation_set = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/')
+validation_generator = data.DataLoader(validation_set, **params)
 
 # Fetch lengths
 num_training = len(training_set)
-num_eval_trainset = len(eval_trainset)
-num_eval_validationset = len(eval_validationset)
+num_validation = len(validation_set)
 
-# loading pretrained weights from bvlc_alexnet.npy
 pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
 converted = net.state_dict()
 for lname, val in pretrained.items():
@@ -63,11 +52,6 @@ net.load_state_dict(converted, strict = True)
 net.cuda()
 lossfunction = nn.CrossEntropyLoss()
 
-def decay_lr(optimizer, epoch):
-    lr = init_lr * (0.1 ** (epoch // decay_period))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
 optimizer= optim.SGD(
     [{'params':net.conv1.parameters()},
      {'params':net.conv2.parameters()},
@@ -77,15 +61,13 @@ optimizer= optim.SGD(
      {'params':net.fc6.parameters()},
      {'params':net.fc7.parameters()},
      {'params':net.fc8.parameters(), 'lr':0.01}],
-     lr=init_lr,
+     lr=0.001,
      momentum = 0.9,
      weight_decay = 0.0005)
-
 for epoch in range(100):
     loss= 0.
-    decay_lr(optimizer, epoch)
     net.train()
-    for x, _, y in training_generator:
+    for x, y in training_generator:
         # To CUDA tensors
         x = x.cuda().float()
         y = y.cuda() - 1
@@ -101,60 +83,45 @@ for epoch in range(100):
         loss.backward()
         optimizer.step()
     net.eval()
+
     # Test
     hit_training = 0
     hit_validation = 0
-    for x, _, y in eval_trainset_generator:
+    for x, y in validation_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
-        prediction = torch.mean(output, dim=0)
-        prediction = prediction.cpu().detach().numpy()
-
-        if np.argmax(prediction) == y:
-            hit_training += 1
 
         # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
+        prediction = torch.max(output, 1)[1]
+        hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
-    for x, _, y in eval_validationset_generator:
+
+    for x, y in training_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
-        prediction = torch.mean(output, dim=0)
-        prediction = prediction.cpu().detach().numpy()
-
-        if np.argmax(prediction) == y:
-            hit_validation += 1
 
         # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
+        prediction = torch.max(output, 1)[1]
+        hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
+
 
     # Trace
-    acc_training = float(hit_training) / num_eval_trainset
-    acc_validation = float(hit_validation) / num_eval_validationset
     print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
     print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-          .format(acc_training*100, hit_training, num_eval_trainset))
+          .format((float(hit_training)/num_training)*100, hit_training, num_training))
     print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-          .format(acc_validation*100, hit_validation, num_eval_validationset))
+          .format((float(hit_validation)/num_validation)*100, hit_validation, num_validation))
 
     # Log Tensorboard
-    writer.add_scalar('GroundTruth loss', loss, epoch)
-    writer.add_scalars('Accuracies',
-                       {'Training accuracy': acc_training,
-                        'Validation accuracy': acc_validation}, epoch)
-    # torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
+    writer.add_scalar('GroundTruth loss', loss)
 
 print('Finished Training')
 writer.close()
