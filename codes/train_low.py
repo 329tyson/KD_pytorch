@@ -9,7 +9,7 @@ from torchvision import transforms
 from torch.utils import data
 
 # Training Params
-params = {'batch_size': 111,
+params = {'batch_size': 128,
           'shuffle': True,
           'num_workers': 6,
           'drop_last' : True}
@@ -86,7 +86,7 @@ for epoch in range(100):
     loss= 0.
     decay_lr(optimizer, epoch)
     net.train()
-    for x, _, y in training_generator:
+    for _, x, y in training_generator:
         # To CUDA tensors
         x = x.cuda().float()
         y = y.cuda() - 1
@@ -103,21 +103,21 @@ for epoch in range(100):
         optimizer.step()
     net.eval()
     # periodically trace accuracy
-    # if (epoch + 1) % 15 > 0 :
-        # writer.add_scalar('loss', loss, epoch)
-        # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        # torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
-        # continue
-    # trace accuracy conditionally
-    if (epoch + 1) < 35 :
+    if (epoch + 1) % 10 > 0 :
         writer.add_scalar('loss', loss, epoch)
         print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
+        torch.save(net.state_dict(), './lowmodels/teachernet_low_res_' + str(epoch) + '_epoch.pt')
         continue
+    # trace accuracy conditionally
+    # if (epoch + 1) < 35 :
+        # writer.add_scalar('loss', loss, epoch)
+        # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        # torch.save(net.state_dict(), './lowmodels/teachernet' + str(epoch) + '_epoch.pt')
+        # continue
     # Test only 10, 20, 30... epochs
     hit_training = 0
     hit_validation = 0
-    for x, _, y in eval_trainset_generator:
+    for _, x, y in eval_trainset_generator:
         # To CUDA tensors
         x = torch.squeeze(x)
         x = x.cuda().float()
@@ -135,7 +135,7 @@ for epoch in range(100):
         # prediction = torch.max(output, 1)[1]
         # hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
-    for x, _, y in eval_validationset_generator:
+    for _, x, y in eval_validationset_generator:
         # To CUDA tensors
         x = torch.squeeze(x)
         x = x.cuda().float()
@@ -167,7 +167,7 @@ for epoch in range(100):
     writer.add_scalars('Accuracies',
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
-    torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
+    torch.save(net.state_dict(), './lowmodels/teachernet_low_res_' + str(epoch) + '_epoch.pt')
 
 print('Finished Training')
 writer.close()

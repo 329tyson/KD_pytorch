@@ -2,6 +2,7 @@ CUB_200_2011/
 codes/logs/
 codes/models/
 codes/runs/
+codes/lowmodels/
 *.ipynb
 *.npy
 

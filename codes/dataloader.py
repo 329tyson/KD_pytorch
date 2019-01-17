@@ -86,8 +86,8 @@ class CUBDataset(data.Dataset):
         image = image - self.IMG_MEAN
 
         # Random flip
-        # if random.random() > 0.5 :
-            # image = cv2.flip(image,0)
+        if random.random() > 0.5 :
+            image = cv2.flip(image,1)
 
         y_crop = random.random() * 30
         y_crop = int(y_crop)
