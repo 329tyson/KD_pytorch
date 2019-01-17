@@ -12,7 +12,7 @@ from torch.utils import data
 temperature = 3.0
 
 # Training Params
-params = {'batch_size': 128,
+params = {'batch_size': 111,
           'shuffle': True,
           'num_workers': 6,
           'drop_last' : True}
@@ -24,7 +24,7 @@ eval_params = {'batch_size': 1,
 
 weights_path = './bvlc_alexnet.npy'
 init_lr = 0.001
-decay_period = 30
+decay_period = 20
 # writer = SummaryWriter(log_dir = 'runs/lr=' + str(init_lr) + '_decay_period=' + str(decay_period))
 writer = SummaryWriter()
 
@@ -51,23 +51,24 @@ num_eval_trainset = len(eval_trainset)
 num_eval_validationset = len(eval_validationset)
 
 # loading pretrained weights from bvlc_alexnet.npy
-pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
-converted = net.state_dict()
-for lname, val in pretrained.items():
-    if 'conv' in lname:
-        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-        converted[lname+".bias"] = torch.from_numpy(val[1])
-    elif 'fc8' in lname:
-        continue
-    elif 'fc' in lname:
-        converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
-        converted[lname+".bias"] = torch.from_numpy(val[1])
+# pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
+# converted = net.state_dict()
+# for lname, val in pretrained.items():
+#     if 'conv' in lname:
+#         converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+#         converted[lname+".bias"] = torch.from_numpy(val[1])
+#     elif 'fc8' in lname:
+#         continue
+#     elif 'fc' in lname:
+#         converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
+#         converted[lname+".bias"] = torch.from_numpy(val[1])
 
+converted = torch.load('teachernet_42_epoch.pt')
 net.load_state_dict(converted, strict = True)
 net.cuda()
 
 # TODO: fc8's weight should be assigned
-teacher_weight = torch.load('teachernet_43_epoch.pt')
+teacher_weight = torch.load('teachernet_42_epoch.pt')
 teacher_net.load_state_dict(teacher_weight, strict=True)
 teacher_net.cuda()
 teacher_net.eval()
@@ -78,6 +79,7 @@ def decay_lr(optimizer, epoch):
     lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+    optimizer.param_groups[7]['lr'] = lr * 10
 
 optimizer= optim.SGD(
     [{'params':net.conv1.parameters()},
@@ -124,6 +126,10 @@ for epoch in range(100):
         optimizer.step()
     net.eval()
 
+    if (epoch + 1) % 10 > 0 :
+        writer.add_scalar('loss', loss, epoch)
+        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        continue
     # Test
     hit_training = 0
     hit_validation = 0
