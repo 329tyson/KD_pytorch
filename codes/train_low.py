@@ -9,7 +9,7 @@ from torchvision import transforms
 from torch.utils import data
 
 # Training Params
-params = {'batch_size': 128,
+params = {'batch_size': 111,
           'shuffle': True,
           'num_workers': 6,
           'drop_last' : True}
@@ -103,18 +103,18 @@ for epoch in range(100):
         optimizer.step()
     net.eval()
     # periodically trace accuracy
-    if (epoch + 1) % 10 > 0 :
-        writer.add_scalar('loss', loss, epoch)
-        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        torch.save(net.state_dict(), './lowmodels/teachernet_low_res_' + str(epoch) + '_epoch.pt')
-        continue
-    # trace accuracy conditionally
-    # if (epoch + 1) < 35 :
+    # Test only 10, 20, 30... epochs
+    # if (epoch + 1) % 10 > 0 :
         # writer.add_scalar('loss', loss, epoch)
         # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        # torch.save(net.state_dict(), './lowmodels/teachernet' + str(epoch) + '_epoch.pt')
+        # torch.save(net.state_dict(), './lowmodels/teachernet_low_res_' + str(epoch) + '_epoch.pt')
         # continue
-    # Test only 10, 20, 30... epochs
+    # trace accuracy conditionally
+    if (epoch + 1) < 35 :
+        writer.add_scalar('loss', loss, epoch)
+        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        torch.save(net.state_dict(), './lowmodels/teachernet' + str(epoch) + '_epoch.pt')
+        continue
     hit_training = 0
     hit_validation = 0
     for _, x, y in eval_trainset_generator:
