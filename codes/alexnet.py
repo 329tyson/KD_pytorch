@@ -7,11 +7,12 @@ import datetime
 import logging
 
 # log settings
-logging.basicConfig(format='%(message)s',
-                    filename=str(os.path.dirname(os.path.realpath(__file__)) + '/logs/'+ datetime.datetime.now().strftime('Day_%d,_%H:%M')) + '.log',
-                    filemode='w',
-                    level=logging.INFO)
-
+logging.basicConfig(
+    format='%(message)s',
+    filename=str(os.path.dirname(os.path.realpath(__file__)) + '/logs/'+ datetime.datetime.now().strftime('execution_log@D%dT%HH%MM')) + '.log',
+    filemode='w',
+    level=logging.INFO
+)
 # decorator for time logging
 def timeit(method):
     def timed(*args, **kw):
@@ -51,7 +52,6 @@ class AlexNet(nn.Module):
         self.create_network()
 
 
-    @timeit
     def forward(self, x):
         x = self.conv1(x)
         x = self.relu1(x)

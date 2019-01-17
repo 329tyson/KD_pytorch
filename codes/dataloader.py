@@ -100,7 +100,7 @@ class CUBDataset(data.Dataset):
         # image = transforms.ToTensor()(image)
 
         # Low res
-        low_image = cv2.resize(image, (50,50), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(image, (25,25), interpolation=cv2.INTER_CUBIC)
         low_image = cv2.resize(low_image, (227,227), interpolation=cv2.INTER_CUBIC)
 
         image = transforms.ToTensor()(image)
