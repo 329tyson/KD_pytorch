@@ -3,6 +3,7 @@ codes/logs/
 codes/models/
 codes/runs/
 codes/lowmodels/
+codes/KDmodels/
 *.ipynb
 *.npy
 
