@@ -25,28 +25,65 @@ def timeit(method):
         return result
     return timed
 
+
+class SRLayer(nn.Module):
+    def __init__(self):
+        super(SRLayer, self).__init__()
+        # f1 = 9x9, 64
+        # f2 = 5x5, 32
+        # f3 = 5x5, 3
+        # element-wise addition
+        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
+        self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
+        self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
+
+        self.relu1 = nn.ReLU(inplace=True)
+        self.relu2 = nn.ReLU(inplace=True)
+
+        print('\n==============================Network Structure=================================\n')
+        print('[SR Layer]')
+        print('sconv1', self.sconv1)
+        print('relu1', self.relu1)
+        print('sconv2', self.sconv2)
+        print('relu2', self.relu2)
+        print('sconv3', self.sconv3)
+        print('\n')
+
+    def forward(self, x):
+        residual = x
+
+        x = self.sconv1(x)
+        x = self.relu1(x)
+
+        x = self.sconv2(x)
+        x = self.relu2(x)
+
+        x = self.sconv3(x)
+        x = torch.add(residual, x)
+
+        return x
+
+    def init_layer(self, layer):
+        layer.weight.data.normal_(mean=0.0, std=0.001)
+        layer.bias.data.fill_(0)
+        return layer
+
+
 class AlexNet(nn.Module):
     @timeit
-    def __init__(self, keep_prob, num_classes, skip_layer, train_mode,
-                 weights_path='DEFAULT', res=None):
+    def __init__(self, keep_prob, num_classes, skip_layer, train_mode):
         super(AlexNet, self).__init__()
         # Parse input arguments into class variables
         self.NUM_CLASSES = num_classes
         self.KEEP_PROB = keep_prob
         self.SKIP_LAYER = skip_layer
-        self.res = res
         self.var_dict = {}
         self.train_mode = train_mode
 
-        if weights_path == 'DEFAULT':
-            self.WEIGHTS_PATH = 'bvlc_alexnet.npy'
-        else:
-            self.WEIGHTS_PATH = weights_path
-
-        self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
+        # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
         self.load=True
 
-        print(self.weights_dict.keys())
+        # print(self.weights_dict.keys())
 
         self.create_network()
 
@@ -119,7 +156,7 @@ class AlexNet(nn.Module):
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
 
-        print('\n==============================Network Structure=================================\n')
+        print('[AlexNet]')
         print('pool1', self.pool1)
         print('pool2', self.pool2)
         print('conv3', self.conv3)
@@ -137,3 +174,63 @@ class AlexNet(nn.Module):
         nn.init.constant_(net.bias, 0.0)
 
         return net
+
+
+class RACNN(nn.Module):
+    def __init__(self, keep_prob, num_classes, skip_layer, train_mode,
+                 alex_weights_path=None, alex_pretrained=False, from_npy=False,
+                 sr_weights_path=None, sr_pretrained=False
+                 ):
+        super(RACNN, self).__init__()
+
+        self.srLayer = SRLayer()
+        self.classificationLayer = AlexNet(keep_prob, num_classes, skip_layer, train_mode)
+
+        if sr_pretrained:
+            sr_weights = torch.load(sr_weights_path)
+            self.srLayer.load_state_dict(sr_weights)
+
+        if alex_pretrained:
+            alex_weights = torch.load(alex_weights_path)
+            self.classificationLayer.load_state_dict(alex_weights)
+
+        if from_npy:
+            pretrained = np.load(alex_weights_path, encoding='latin1').item()
+            converted = self.classificationLayer.state_dict()
+            for lname, val in pretrained.items():
+                if 'conv' in lname:
+                    converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(3, 2, 0, 1))
+                    converted[lname + ".bias"] = torch.from_numpy(val[1])
+                elif 'fc8' in lname:
+                    continue
+                elif 'fc' in lname:
+                    converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(1, 0))
+                    converted[lname + ".bias"] = torch.from_numpy(val[1])
+
+            self.classificationLayer.load_state_dict(converted, strict=True)
+
+    def forward(self, x):
+        sr_x = self.srLayer(x)
+        output = self.classificationLayer(sr_x)
+
+        return output, sr_x
+
+    def get_all_params_except_last_fc(self):
+        b = []
+
+        # b.append(self.srLayer)
+        b.append(self.classificationLayer.conv1)
+        b.append(self.classificationLayer.conv2)
+        b.append(self.classificationLayer.conv3)
+        b.append(self.classificationLayer.conv4)
+        b.append(self.classificationLayer.conv5)
+        b.append(self.classificationLayer.fc6)
+        b.append(self.classificationLayer.fc7)
+
+        for i in range(len(b)):
+            for j in b[i].modules():
+                jj = 0
+                for k in j.parameters():
+                    jj += 1
+                    if k.requires_grad:
+                        yield k
