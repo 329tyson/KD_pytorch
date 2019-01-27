@@ -219,7 +219,7 @@ class CUBDataset(data.Dataset):
         # image = transforms.ToTensor()(image)
 
         # Low res
-        low_image = cv2.resize(image, (50,50), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(image, (25,25), interpolation=cv2.INTER_CUBIC)
         low_image = cv2.resize(low_image, (227,227), interpolation=cv2.INTER_CUBIC)
 
         image = transforms.ToTensor()(image)
@@ -249,7 +249,7 @@ class CUBDataset(data.Dataset):
         # print('image 6 shape : ',img6.shape)
         image = [img1, img2, img3, img4, img5, img6, img7, img8, img9, img10]
 
-        low_image = [cv2.resize(img, (50, 50), interpolation=cv2.INTER_CUBIC) for img in image]
+        low_image = [cv2.resize(img, (25, 25), interpolation=cv2.INTER_CUBIC) for img in image]
         low_image = [cv2.resize(img, (227, 227), interpolation=cv2.INTER_CUBIC) for img in low_image]
         low_image = [transforms.ToTensor()(img) for img in low_image]
         low_image = np.stack(low_image, axis=0)

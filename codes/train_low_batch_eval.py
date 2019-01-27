@@ -13,13 +13,15 @@ import datetime
 import logging
 import os
 
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 # Training Params
 params = {'batch_size': 111,
           'shuffle': True,
           'num_workers': 6,
           'drop_last' : True}
 
-eval_params = {'batch_size': 1,
+eval_params = {'batch_size': 111,
           'shuffle': True,
           'num_workers': 6,
           'drop_last' : True}
@@ -33,7 +35,7 @@ logging.info('[{}][train_low.py][          lr] : {}'.format(datetime.datetime.no
 logging.info('[{}][train_low.py][decay_period] : {}'.format(datetime.datetime.now().strftime('%dDT%HH%MM'),str(decay_period)))
 logging.info('[{}][train_low.py][  batch_size] : {}'.format(datetime.datetime.now().strftime('%dDT%HH%MM'),str(params['batch_size'])))
 
-writer = SummaryWriter(log_dir = './runs/train_low.py_lr:{}_batch_size:{}_decay:{}@{}'.format(init_lr, params['batch_size'], decay_period,datetime.datetime.now().strftime('D%dT%HH%MM')))
+writer = SummaryWriter(log_dir = './runs/train_low_batch_eval.py_lr:{}_batch_size:{}_decay:{}@{}'.format(init_lr, params['batch_size'], decay_period,datetime.datetime.now().strftime('D%dT%HH%MM')))
 # writer = SummaryWriter()
 
 
@@ -47,9 +49,9 @@ training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2
 training_generator = data.DataLoader(training_set, **params)
 
 # Generate datasets for Test
-eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
 eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
-eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', True)
 eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
 
 # Fetch lengths
@@ -133,39 +135,39 @@ for epoch in range(100):
     hit_validation = 0
     for _, x, y in eval_trainset_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
+        # x = torch.squeeze(x)
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
-        prediction = torch.mean(output, dim=0)
-        prediction = prediction.cpu().detach().numpy()
+        # prediction = torch.mean(output, dim=0)
+        # prediction = prediction.cpu().detach().numpy()
 
-        if np.argmax(prediction) == y:
-            hit_training += 1
+        # if np.argmax(prediction) == y:
+            # hit_training += 1
 
         # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
+        prediction = torch.max(output, 1)[1]
+        hit_training += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
     for _, x, y in eval_validationset_generator:
         # To CUDA tensors
-        x = torch.squeeze(x)
+        # x = torch.squeeze(x)
         x = x.cuda().float()
         y -= 1
 
         # Network output
         output= net(x)
-        prediction = torch.mean(output, dim=0)
-        prediction = prediction.cpu().detach().numpy()
+        # prediction = torch.mean(output, dim=0)
+        # prediction = prediction.cpu().detach().numpy()
 
-        if np.argmax(prediction) == y:
-            hit_validation += 1
+        # if np.argmax(prediction) == y:
+            # hit_validation += 1
 
         # Count prediction hit on training set
-        # prediction = torch.max(output, 1)[1]
-        # hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
+        prediction = torch.max(output, 1)[1]
+        hit_validation += np.sum(prediction.cpu().numpy() ==  y.numpy())
 
     # Trace
     acc_training = float(hit_training) / num_eval_trainset

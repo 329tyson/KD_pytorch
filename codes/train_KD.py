@@ -8,6 +8,10 @@ from tensorboardX import SummaryWriter
 from dataloader import CUBDataset
 from torchvision import transforms
 from torch.utils import data
+import time
+import datetime
+import logging
+import os
 
 temperature = 3.0
 
@@ -25,7 +29,12 @@ eval_params = {'batch_size': 1,
 weights_path = './bvlc_alexnet.npy'
 init_lr = 0.001
 decay_period = 20
-# writer = SummaryWriter(log_dir = 'runs/lr=' + str(init_lr) + '_decay_period=' + str(decay_period))
+logging.info('=======================Training with Knowledge Distillation============================')
+logging.info('[{}][train.py][          lr] : {}'.format(datetime.datetime.now().strftime('%dDT%HH%MM'),str(init_lr)))
+logging.info('[{}][train.py][decay_period] : {}'.format(datetime.datetime.now().strftime('%dDT%HH%MM'),str(decay_period)))
+logging.info('[{}][train.py][  batch_size] : {}'.format(datetime.datetime.now().strftime('%dDT%HH%MM'),str(params['batch_size'])))
+
+writer = SummaryWriter(log_dir = './runs/train_KD.py_lr:{}_batch_size:{}_decay:{}@{}'.format(init_lr, params['batch_size'], decay_period,datetime.datetime.now().strftime('D%dT%HH%MM')))
 writer = SummaryWriter()
 
 
@@ -63,12 +72,12 @@ num_eval_validationset = len(eval_validationset)
 #         converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
 #         converted[lname+".bias"] = torch.from_numpy(val[1])
 
-converted = torch.load('teachernet_42_epoch.pt')
+converted = torch.load('./models/teachernet_42_epoch.pt')
 net.load_state_dict(converted, strict = True)
 net.cuda()
 
 # TODO: fc8's weight should be assigned
-teacher_weight = torch.load('teachernet_42_epoch.pt')
+teacher_weight = torch.load('./models/teachernet_42_epoch.pt')
 teacher_net.load_state_dict(teacher_weight, strict=True)
 teacher_net.cuda()
 teacher_net.eval()
@@ -129,6 +138,9 @@ for epoch in range(100):
     if (epoch + 1) % 10 > 0 :
         writer.add_scalar('loss', loss, epoch)
         print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        # torch.save(net.state_dict(), './KDmodels/studentnet_' + str(epoch) + '_epoch.pt.pt')
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+        logging.info('[{}][EPOCH{}][Training] loss : {}'.format(timestamp, epoch+1,loss))
         continue
     # Test
     hit_training = 0
@@ -177,13 +189,23 @@ for epoch in range(100):
           .format(acc_training*100, hit_training, num_eval_trainset))
     print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
           .format(acc_validation*100, hit_validation, num_eval_validationset))
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    logging.info('[{}][EPOCH{}][Evaluate] loss : {} Training :{} Validation : {}'
+                 .format(timestamp,
+                         epoch + 1,
+                         loss,
+                         acc_training,
+                         acc_validation
+                         )
+                 )
 
     # Log Tensorboard
     writer.add_scalar('GroundTruth loss', loss, epoch)
     writer.add_scalars('Accuracies',
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
-    # torch.save(net.state_dict(), './models/teachernet_' + str(epoch) + '_epoch.pt')
+    # torch.save(net.state_dict(), './KDmodels/studentnet_' + str(epoch) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
 
+torch.save(net.state_dict(), './KDmodels/studentnet.pt')
 print('Finished Training')
 writer.close()
