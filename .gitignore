@@ -4,6 +4,14 @@ codes/models/
 codes/runs/
 codes/lowmodels/
 codes/KDmodels/
+codes/stanford/
+codes/stanford_KD/
+codes/stanford_low/
+stanford/
+*.1
+*.mat
+*.pt
 *.ipynb
 *.npy
+*.tgz
 
