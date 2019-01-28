@@ -2,12 +2,16 @@ import cv2
 import random
 import numpy as np
 import csv
+import torch
 from torch.utils import data
 from torchvision import transforms
 import time
 import datetime
 import logging
 import os
+
+import os.path as osp
+from torch.utils.data import DataLoader
 
 logging.basicConfig(
     format='%(message)s',
@@ -26,13 +30,128 @@ def timeit(method):
         return result
     return timed
 
+
+class ImageNetDataset(data.Dataset):
+
+    def __init__(self, image_path, size=(227,227),
+                 mean=(101.62178631, 115.08336281, 120.41566486)):
+        self.path = image_path
+        self.size = size
+        self.mean = mean
+
+        self.stride = 17
+        self.crop_size = 51
+
+        self.num = (size[0] - self.crop_size) // self.stride
+
+        self.img_ids = [i_id.strip() for i_id in os.listdir(image_path)]
+
+        self.files = []
+
+        for name in self.img_ids:
+            img_file = osp.join(self.path, name)
+            self.files.append({
+                "img": img_file,
+                "name": name
+            })
+
+    def __len__(self):
+        return len(self.files)
+
+    def generateImagePatch(self, image):
+        sub_image = []
+        for i in range(self.num):
+            for j in range(self.num):
+                sub_image.append(image[i * self.stride: i * self.stride + self.crop_size,
+                                    j * self.stride: j * self.stride + self.crop_size, :])
+        sub_image = np.asarray(sub_image)
+
+        return sub_image
+
+    def __getitem__(self, index):
+        datafiles = self.files[index]
+        image = cv2.imread(datafiles["img"], cv2.IMREAD_COLOR)
+        name = datafiles["name"]
+
+        # image = image - self.mean
+        image = np.asarray(image, np.float32)
+        # image -= self.mean
+
+        image = cv2.resize(image, self.size, interpolation=cv2.INTER_CUBIC)
+
+        low_image = cv2.resize(image, (50, 50), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(low_image, self.size, interpolation=cv2.INTER_CUBIC)
+
+        image -= self.mean
+        low_image -= self.mean
+
+        images = self.generateImagePatch(image)
+        low_images = self.generateImagePatch(low_image)
+
+        perm = torch.randperm(self.num * self.num)
+        # perm size = 100
+
+        images = images[perm[:32], :,:,:]
+        low_images = low_images[perm[:32], :,:,:]
+
+        images = np.asarray(images)
+        low_images = np.asarray(low_images)
+
+        images = images.transpose((0, 3, 1, 2))
+        low_images = low_images.transpose((0, 3, 1, 2))
+
+        return images.copy(), low_images.copy(), name
+
+class ImageNetTestDataset(data.Dataset):
+
+    def __init__(self, image_path, size=(227, 227),
+                 mean=(101.62178631, 115.08336281, 120.41566486)):
+        self.path = image_path
+        self.size = size
+        self.mean = mean
+
+        self.img_ids = [i_id.strip() for i_id in os.listdir(image_path)]
+
+        self.files = []
+
+        for name in self.img_ids:
+            img_file = osp.join(self.path, name)
+            self.files.append({
+                "img": img_file,
+                "name": name
+            })
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        datafiles = self.files[index]
+        image = cv2.imread(datafiles["img"], cv2.IMREAD_COLOR)
+        name = datafiles["name"]
+
+        image = np.asarray(image, np.float32)
+        # image -= self.mean
+
+        image = cv2.resize(image, self.size, interpolation=cv2.INTER_CUBIC)
+
+        low_image = cv2.resize(image, (50, 50), interpolation=cv2.INTER_CUBIC)
+        low_image = cv2.resize(low_image, self.size, interpolation=cv2.INTER_CUBIC)
+
+        image -= self.mean
+
+        image = image.transpose((2, 0, 1))
+        low_image = low_image.transpose((2, 0, 1))
+
+        return image.copy(), low_image.copy(), name
+
+
 class CUBDataset(data.Dataset):
 
-    def __init__(self, csv_file, image_path, trainable = True):
+    def __init__(self, csv_file, image_path, trainable = True, mean=(123.68, 116.779, 103.939)):
         self.ROOT = os.path.dirname(os.path.realpath(__file__))
         self.CSV_FILE_PATH = os.path.abspath(os.path.join(self.ROOT, csv_file))
         self.IMAGE_PATH = os.path.abspath(os.path.join(self.ROOT, image_path))
-        self.IMG_MEAN = np.array([123.68, 116.779, 103.939])
+        self.IMG_MEAN = np.array(list(mean))
         self.Trainable= trainable
         # self.IMG_MEAN = np.array([103.939, 116.779, 123.68])
 
@@ -140,3 +259,17 @@ class CUBDataset(data.Dataset):
 
         return image, low_image
 
+if __name__ == "__main__":
+    train_loader = DataLoader(ImageNetDataset('./../data/ILSVRC2013_DET_val/'), batch_size=2)
+    total_mean = np.zeros(3)
+    print total_mean
+    for iteration,batch in enumerate(train_loader):
+        _, _, _ = batch
+        # means = np.mean(np.asarray(mean), axis=0)
+        # total_mean += means
+
+    print len(train_loader)
+
+    total_mean /= len(train_loader)
+
+    print total_mean

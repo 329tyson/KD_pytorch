@@ -4,7 +4,6 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from tensorboardX import SummaryWriter
-from dataloader import CUBDataset
 from torchvision import transforms
 from torch.utils import data
 
@@ -12,6 +11,9 @@ import time
 import datetime
 import logging
 import os
+
+# from dataloader import CUBDataset
+from car_dataloader import CARDataset
 
 # Training Params
 params = {'batch_size': 111,
@@ -36,27 +38,40 @@ logging.info('[{}][train.py][  batch_size] : {}'.format(datetime.datetime.now().
 writer = SummaryWriter(log_dir = './runs/train.py_lr:{}_batch_size:{}_decay:{}@{}'.format(init_lr, params['batch_size'], decay_period,datetime.datetime.now().strftime('D%dT%HH%MM')))
 # writer = SummaryWriter()
 
+# for CUB dataset
+# net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
 
-net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
+# for stanford CAR dataset
+net = alexnet.AlexNet(0.5, 196, ['fc8'], True)
 
 # Small testset & test.csv
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
 
 # Generate training dataset
-training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+# training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+# training_generator = data.DataLoader(training_set, **params)
+
+# # Generate datasets for Test
+# eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
+# eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
+# eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
+# eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
+
+training_set = CARDataset('../stanford/cars_annos.mat', '../stanford/', True, 'Train')
 training_generator = data.DataLoader(training_set, **params)
 
 # Generate datasets for Test
-eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_trainset = CARDataset('../stanford/cars_annos.mat', '../stanford/', False, 'Train')
 eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
-eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_validationset = CARDataset('../stanford/cars_annos.mat', '../stanford/', False, 'Eval')
 eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
-
 # Fetch lengths
 num_training = len(training_set)
 num_eval_trainset = len(eval_trainset)
 num_eval_validationset = len(eval_validationset)
 
+print('Training images : ', num_training)
+print('Validation images : ', num_eval_validationset)
 # loading pretrained weights from bvlc_alexnet.npy
 pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
 converted = net.state_dict()
@@ -117,7 +132,7 @@ for epoch in range(100):
     if (epoch + 1) % 10 > 0 :
         writer.add_scalar('loss', loss, epoch)
         print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        torch.save(net.state_dict(), './lowmodels/teachernet_' + str(epoch) + '_epoch.pt')
+        # torch.save(net.state_dict(), './stanford/teachernet_' + str(epoch) + '_epoch.pt')
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
         logging.info('[{}][EPOCH{}][Training] loss : {}'.format(timestamp, epoch+1,loss))
         continue
@@ -189,7 +204,7 @@ for epoch in range(100):
     writer.add_scalars('Accuracies',
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
-    torch.save(net.state_dict(), './lowmodels/teachernet_' + str(epoch) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
+    torch.save(net.state_dict(), './stanford/teachernet_' + str(epoch) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
 
 print('Finished Training')
 writer.close()

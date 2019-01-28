@@ -5,13 +5,15 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from tensorboardX import SummaryWriter
-from dataloader import CUBDataset
 from torchvision import transforms
 from torch.utils import data
 import time
 import datetime
 import logging
 import os
+
+# from dataloader import CUBDataset
+from car_dataloader import CARDataset
 
 temperature = 3.0
 
@@ -38,21 +40,30 @@ writer = SummaryWriter(log_dir = './runs/train_KD.py_lr:{}_batch_size:{}_decay:{
 writer = SummaryWriter()
 
 
-net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
-teacher_net = alexnet.AlexNet(0.5, 200, ['fc8'], True)
+net = alexnet.AlexNet(0.5, 196, ['fc8'], True)
+teacher_net = alexnet.AlexNet(0.5, 196, ['fc8'], True)
 
 # Small testset & test.csv
 # training_set = CUBDataset('../TestImagelabels.csv','../TestImages/')
 
-# Generate training dataset
-training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+training_set = CARDataset('../stanford/cars_annos.mat', '../stanford/', True, 'Train')
 training_generator = data.DataLoader(training_set, **params)
 
 # Generate datasets for Test
-eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_trainset = CARDataset('../stanford/cars_annos.mat', '../stanford/', False, 'Train')
 eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
-eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
+eval_validationset = CARDataset('../stanford/cars_annos.mat', '../stanford/', False, 'Eval')
 eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
+
+# Generate training dataset
+# training_set = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', True)
+# training_generator = data.DataLoader(training_set, **params)
+
+# Generate datasets for Test
+# eval_trainset = CUBDataset('../labels/label_train_cub200_2011.csv', '../CUB_200_2011/images/', False)
+# eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
+# eval_validationset = CUBDataset('../labels/label_val_cub200_2011.csv', '../CUB_200_2011/images/', False)
+# eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
 
 # Fetch lengths
 num_training = len(training_set)
@@ -72,12 +83,13 @@ num_eval_validationset = len(eval_validationset)
 #         converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
 #         converted[lname+".bias"] = torch.from_numpy(val[1])
 
-converted = torch.load('./models/teachernet_42_epoch.pt')
+# converted = torch.load('./models/teachernet_42_epoch.pt')
+converted = torch.load('./stanford/teachernet_99_epoch_acc_78.39820917796294.pt')
 net.load_state_dict(converted, strict = True)
 net.cuda()
 
 # TODO: fc8's weight should be assigned
-teacher_weight = torch.load('./models/teachernet_42_epoch.pt')
+teacher_weight = torch.load('./stanford/teachernet_99_epoch_acc_78.39820917796294.pt')
 teacher_net.load_state_dict(teacher_weight, strict=True)
 teacher_net.cuda()
 teacher_net.eval()
@@ -205,7 +217,8 @@ for epoch in range(100):
                        {'Training accuracy': acc_training,
                         'Validation accuracy': acc_validation}, epoch)
     # torch.save(net.state_dict(), './KDmodels/studentnet_' + str(epoch) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+    torch.save(net.state_dict(), './stanford_KD/studentnet_' + str(epoch) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
 
-torch.save(net.state_dict(), './KDmodels/studentnet.pt')
+torch.save(net.state_dict(), './stanford_KD/studentnet_' + str(epoch) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
 print('Finished Training')
 writer.close()
