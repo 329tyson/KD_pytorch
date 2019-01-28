@@ -14,6 +14,7 @@ def training(
     init_lr,
     lr_decay,
     epochs,
+    ten_crop,
     training_generator,
     eval_trainset_generator,
     eval_validationset_generator,
@@ -42,14 +43,12 @@ def training(
             # Network output
             output = net(x)
 
-
             loss = lossfunction(output, y)
             loss.backward()
             optimizer.step()
         net.eval()
         # Test only 10, 20, 30... epochs
         if (epoch + 1) % 10 > 0 :
-            # writer.add_scalar('loss', loss, epoch)
             print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
             logger.info('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
             continue
@@ -63,11 +62,17 @@ def training(
 
             # Network output
             output= net(x)
-            prediction = torch.mean(output, dim=0)
-            prediction = prediction.cpu().detach().numpy()
 
-            if np.argmax(prediction) == y:
-                hit_training += 1
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_training += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_training += (prediction == y.numpy()).sum()
 
 
         for x, y in eval_validationset_generator:
@@ -78,11 +83,18 @@ def training(
 
             # Network output
             output= net(x)
-            prediction = torch.mean(output, dim=0)
-            prediction = prediction.cpu().detach().numpy()
 
-            if np.argmax(prediction) == y:
-                hit_validation += 1
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_validation += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_validation += (prediction == y.numpy()).sum()
+
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
         print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
@@ -106,6 +118,7 @@ def training_KD(
     init_lr,
     lr_decay,
     epochs,
+    ten_crop,
     training_generator,
     eval_trainset_generator,
     eval_validationset_generator,
@@ -164,11 +177,17 @@ def training_KD(
 
             # Network output
             output= net(x_low)
-            prediction = torch.mean(output, dim=0)
-            prediction = prediction.cpu().detach().numpy()
 
-            if np.argmax(prediction) == y:
-                hit_training += 1
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_training += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_training += (prediction == y.numpy()).sum()
 
 
         for  x_low, y in eval_validationset_generator:
@@ -179,11 +198,17 @@ def training_KD(
 
             # Network output
             output= net(x_low)
-            prediction = torch.mean(output, dim=0)
-            prediction = prediction.cpu().detach().numpy()
 
-            if np.argmax(prediction) == y:
-                hit_validation += 1
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_validation += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_validation += (prediction == y.numpy()).sum()
 
 
         # Trace

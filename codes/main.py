@@ -104,6 +104,7 @@ if __name__ == '__main__':
                 args.lr,
                 args.lr_decay,
                 args.epochs,
+                args.ten_batch_eval,
                 train_loader,
                 eval_train_loader,
                 eval_validation_loader,
@@ -138,7 +139,7 @@ if __name__ == '__main__':
                 logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.info('\nTraining High Resolution images')
             logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
+            training(net, optimizer, args.lr, args.lr_decay, args.epochs, args.ten_batch_eval, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
         else:
             print('\nTraining Low Resolution images')
             print('\t on ',args.dataset,' with hyper parameters above')
@@ -163,5 +164,5 @@ if __name__ == '__main__':
                 logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.info('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
             logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
+            training(net, optimizer, args.lr, args.lr_decay, args.epochs, args.ten_batch_eval, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
 
