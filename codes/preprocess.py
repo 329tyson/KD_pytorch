@@ -1,8 +1,6 @@
 import numpy as np
 import torch
-# from dataloader import Dataset
-# from car_dataloader import Dataset
-from remodel_dataloader import Dataset
+from dataloader import Dataset
 from torch.utils import data
 def load_weight(net, pretrained_path, fit=True):
     if pretrained_path == 'NONE':

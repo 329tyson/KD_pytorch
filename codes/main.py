@@ -1,7 +1,7 @@
 from argparser import parse
 from alexnet import AlexNet
-from remodelling import training
-from remodelling import training_KD
+from train import training
+from train import training_KD
 from preprocess import load_weight
 from preprocess import generate_dataset
 
