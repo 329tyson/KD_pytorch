@@ -98,7 +98,7 @@ def parse():
         help='distillation temperature, need to be set if you train KD model')
     parser.add_argument(
         '--ten_batch_eval',
-        action='store_true',
+        action='store_false',
         help='if true, ten batch mean evaluation is performed'
     )
     parser.add_argument(

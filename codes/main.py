@@ -133,7 +133,7 @@ if __name__ == '__main__':
                 exit
 
             print('\nTraining starts')
-            logger = getlogger(args.log_dir + 'DATASET_{}_HIGH_RES'.format(args.dataset))
+            logger = getlogger(args.log_dir + '/DATASET_{}_HIGH_RES'.format(args.dataset))
             for arg in vars(args):
                 logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.info('\nTraining High Resolution images')
@@ -158,7 +158,7 @@ if __name__ == '__main__':
                 print('inapproriate dataset, please put type or stanford')
 
             print('\nTraining starts')
-            logger = getlogger(args.log_dir + 'DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+            logger = getlogger(args.log_dir + '/DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
             for arg in vars(args):
                 logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.info('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
