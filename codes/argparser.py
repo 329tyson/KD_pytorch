@@ -101,6 +101,11 @@ def parse():
         action='store_true',
         help='if true, ten batch mean evaluation is performed'
     )
+    parser.add_argument(
+        '--log_dir',
+        default='./logs',
+        help='Log directory, set to default as ./logs'
+    )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
     parser.set_defaults(verbose=False)

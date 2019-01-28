@@ -18,8 +18,15 @@ def training(
     eval_trainset_generator,
     eval_validationset_generator,
     num_training,
-    num_validation):
+    num_validation,
+    low_ratio,
+    result_path,
+    logger):
     lossfunction = nn.CrossEntropyLoss()
+    if low_ratio != 0:
+        modelName = '/teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+    else:
+        modelName = '/teacher_HIGH_'
     for epoch in range(epochs):
         loss= 0.
         decay_lr(optimizer, epoch, init_lr, lr_decay)
@@ -44,9 +51,7 @@ def training(
         if (epoch + 1) % 10 > 0 :
             # writer.add_scalar('loss', loss, epoch)
             print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            # torch.save(net.state_dict(), './stanford/teachernet_' + str(epoch) + '_epoch.pt')
-            # timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-            # logging.info('[{}][EPOCH{}][Training] loss : {}'.format(timestamp, epoch+1,loss))
+            logger.info('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
             continue
         hit_training = 0
         hit_validation = 0
@@ -85,7 +90,12 @@ def training(
               .format(acc_training*100, hit_training, num_training))
         print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-    torch.save(net.state_dict(), './stanford/teachernet_' + str(epoch) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
+        logger.info('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.info('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+              .format(acc_training*100, hit_training, num_training))
+        logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+              .format(acc_validation*100, hit_validation, num_validation))
+        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
 
 
 def training_KD(
@@ -100,8 +110,15 @@ def training_KD(
     eval_trainset_generator,
     eval_validationset_generator,
     num_training,
-    num_validation):
+    num_validation,
+    low_ratio,
+    result_path,
+    logger):
     lossfunction = nn.CrossEntropyLoss()
+    if low_ratio != 0:
+        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+    else:
+        print('are you serious ...?')
     for epoch in range(epochs):
         loss= 0.
         decay_lr(optimizer, epoch, init_lr, lr_decay)
@@ -134,7 +151,7 @@ def training_KD(
 
         if (epoch + 1) % 10 > 0 :
             print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            # torch.save(net.state_dict(), './KDmodels/studentnet_' + str(epoch) + '_epoch.pt.pt')
+            logger.info('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
             continue
         # Test
         hit_training = 0
@@ -177,6 +194,10 @@ def training_KD(
               .format(acc_training*100, hit_training, num_training))
         print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-
-    torch.save(net.state_dict(), './stanford_KD/studentnet_' + str(epoch) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+        logger.info('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.info('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+              .format(acc_training*100, hit_training, num_training))
+        logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+              .format(acc_validation*100, hit_validation, num_validation))
+        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     print('Finished Training')

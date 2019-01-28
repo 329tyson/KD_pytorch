@@ -4,6 +4,7 @@ from train import training
 from train import training_KD
 from preprocess import load_weight
 from preprocess import generate_dataset
+from logger import getlogger
 
 import os
 import torch.optim as optim
@@ -28,12 +29,14 @@ if __name__ == '__main__':
     - args.verbose
     - args.kd_enabled = False
     - args.kd_temperature = 3
+    - args.log_dir =./logs
     '''
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
     args.annotation_val = os.path.join(args.root, args.annotation_val)
     args.data = os.path.join(args.root, args.data)
     args.result = os.path.join(args.root, args.result)
+    args.log_dir = os.path.join(args.root, args.log_dir)
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
@@ -42,7 +45,6 @@ if __name__ == '__main__':
         args.classes = 200
     else:
         args.classes = 196
-
 
     net = AlexNet(0.5, args.classes, ['fc8'])
 
@@ -68,7 +70,7 @@ if __name__ == '__main__':
         print('\nTraining Knowledge Distillation model')
         print('\t on ',args.dataset,' with hyper parameters above')
         if args.low_ratio == 0:
-            print('Invalid argument, choose low resolution ( 50 | 25)')
+            print('Invalid argument, choose low resolution (50 | 25)')
         else :
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
             teacher_net = AlexNet(0.5, args.classes, ['fc8'])
@@ -87,9 +89,13 @@ if __name__ == '__main__':
                     args.kd_enabled)
             except ValueError:
                 print('inapproriate dataset, please put cub or stanford')
-                exit
 
             print('\nTraining starts')
+            logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+            for arg in vars(args):
+                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
             training_KD(
                 teacher_net,
                 net,
@@ -102,7 +108,10 @@ if __name__ == '__main__':
                 eval_train_loader,
                 eval_validation_loader,
                 num_training,
-                num_validation)
+                num_validation,
+                args.low_ratio,
+                args.result,
+                logger)
 
     else :
         if args.low_ratio == 0:
@@ -124,7 +133,12 @@ if __name__ == '__main__':
                 exit
 
             print('\nTraining starts')
-            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation)
+            logger = getlogger(args.log_dir + 'DATASET_{}_HIGH_RES'.format(args.dataset))
+            for arg in vars(args):
+                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.info('\nTraining High Resolution images')
+            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
         else:
             print('\nTraining Low Resolution images')
             print('\t on ',args.dataset,' with hyper parameters above')
@@ -144,5 +158,10 @@ if __name__ == '__main__':
                 print('inapproriate dataset, please put type or stanford')
 
             print('\nTraining starts')
-            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation)
+            logger = getlogger(args.log_dir + 'DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+            for arg in vars(args):
+                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.info('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+            training(net, optimizer, args.lr, args.lr_decay, args.epochs, train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation, args.low_ratio, args.result, logger)
 
