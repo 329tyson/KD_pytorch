@@ -271,12 +271,13 @@ def training_Gram_KD(
             x_low = x_low.cuda().float()
             y = y.cuda() - 1
 
-            _, t_conv1, _ = teacher_net(x)
+            _, t_conv1, t_conv2 = teacher_net(x)
             t_conv1 = t_conv1.detach()
+            t_conv2 = t_conv2.detach()
 
             optimizer.zero_grad()
 
-            _, s_conv1, _ = net(x_low)
+            _, s_conv1, s_conv2 = net(x_low)
 
             bn, c, h, w = t_conv1.shape
             t_conv1_vec = t_conv1.view(bn, c, h * w)
@@ -288,10 +289,21 @@ def training_Gram_KD(
             s_Gram = torch.bmm(s_conv1_vec, s_conv1_vec.permute((0, 2, 1)))
             GRAM_mse_loss = mse_loss(s_Gram, t_Gram)
 
-            loss = GRAM_mse_loss * style_weight
+            bn2, c2, h2, w2 = t_conv2.shape
+            t_conv2_vec = t_conv2.view(bn2, c2, h2 * w2)
+            s_conv2_vec = s_conv2.view(bn2, c2, h2 * w2)
+            t_conv2_vec = F.normalize(t_conv2_vec, p=2, dim=2)
+            s_conv2_vec = F.normalize(s_conv2_vec, p=2, dim=2)
+
+            t_Gram2 = torch.bmm(t_conv2_vec, t_conv2_vec.permute((0, 2, 1)))
+            s_Gram2 = torch.bmm(s_conv2_vec, s_conv2_vec.permute((0, 2, 1)))
+            GRAM_mse_loss2 = mse_loss(s_Gram2, t_Gram2)
+
+            loss = GRAM_mse_loss * style_weight + GRAM_mse_loss2 * style_weight
             loss.backward()
             optimizer.step()
-            print('In 1st stage, epoch : {}, loss : {}'.format(epoch, loss.data.cpu()))
+            print('In 1st stage, epoch : {}, gram loss : {}, gram loss2 : {}, total loss : {}'.format(
+                epoch, GRAM_mse_loss.data.cpu(), GRAM_mse_loss2.data.cpu(), loss.data.cpu()))
 
     for epoch in range(epochs):
         loss= 0.
