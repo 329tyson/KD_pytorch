@@ -106,8 +106,19 @@ def parse():
         default='./logs',
         help='Log directory, set to default as ./logs'
     )
+    parser.add_argument(
+        '--style_weight',
+        default=1,
+        type=int
+    )
+    parser.add_argument(
+        '--gram_enabled',
+        action='store_true',
+        help='if true, 1st is trained using Gram loss and KD in 2nd stage'
+    )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
+    parser.set_defaults(gram_enbaled=False)
     parser.set_defaults(verbose=False)
 
 

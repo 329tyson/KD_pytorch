@@ -8,10 +8,12 @@ codes/stanford/
 codes/stanford_KD/
 codes/stanford_low/
 stanford/
+data/
 *.1
 *.mat
 *.pt
 *.ipynb
 *.npy
 *.tgz
+*.pyc
 
