@@ -84,12 +84,15 @@ class AlexNet(nn.Module):
 
         x = self.conv3(x)
         x = self.relu3(x)
+        conv3 = x
 
         x = self.conv4(x)
         x = self.relu4(x)
+        conv4 = x
 
         x = self.conv5(x)
         x = self.relu5(x)
+        conv5 = x
         x = self.pool5(x)
 
         x = x.view(x.size(0), 256 * 6 * 6)
@@ -104,7 +107,7 @@ class AlexNet(nn.Module):
 
         x = self.fc8(x)
 
-        return x, conv1, conv2
+        return x, conv1, conv2, conv3, conv4, conv5
 
     def create_network(self):
         self.conv1 = self.init_layer('conv1', nn.Conv2d(3, 96, kernel_size=11, stride=4))

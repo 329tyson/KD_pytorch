@@ -2,11 +2,59 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+
+
 def decay_lr(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
         optimizer.param_groups[7]['lr'] = lr * 10
+
+
+def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight, mse_loss):
+    bn, c, h, w = t_feature.shape
+
+    gram_losses = []
+
+    for i in range(patch_num):
+        x_ = int(round((w * i / float(patch_num))))
+        x_w = int(round((w * (i + 1) / float(patch_num))))
+
+        for j in range(patch_num):
+            y_ = int(round((h * j / float(patch_num))))
+            y_h = int(round((h * (j + 1) / float(patch_num))))
+
+            t_vec = t_feature[:, :, y_: y_h, x_:x_w]
+            s_vec = s_feature[:, :, y_: y_h, x_:x_w]
+
+            t_vec = t_vec.contiguous().view(bn, c, -1)
+            s_vec = s_vec.contiguous().view(bn, c, -1)
+
+            if norm_type == 1:
+                t_vec = t_vec.div((x_w - x_) * (y_h - y_))
+                s_vec = s_vec.div((x_w - x_) * (y_h - y_))
+
+            if norm_type == 2:
+                t_vec = F.normalize(t_vec, p=2, dim=2)
+                s_vec = F.normalize(s_vec, p=2, dim=2)
+
+            t_Gram = torch.bmm(t_vec, t_vec.permute((0, 2, 1)))
+            s_Gram = torch.bmm(s_vec, s_vec.permute((0, 2, 1)))
+
+            if norm_type == 3 or norm_type == 4:
+                t_Gram = t_Gram.div((x_w - x_) * (y_h - y_))
+                s_Gram = s_Gram.div((x_w - x_) * (y_h - y_))
+
+            gram_losses.append(mse_loss(s_Gram, t_Gram))
+
+    if norm_type == 4:
+        loss = style_weight * torch.mean(torch.stack(gram_losses)) / (c ** 2)
+
+    else:
+        loss = style_weight * torch.mean(torch.stack(gram_losses))
+
+    return loss
+
 
 def training(
     net,
@@ -22,7 +70,8 @@ def training(
     num_validation,
     low_ratio,
     result_path,
-    logger):
+    logger,
+    save):
     lossfunction = nn.CrossEntropyLoss()
     if low_ratio != 0:
         modelName = '/teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -107,7 +156,8 @@ def training(
               .format(acc_training*100, hit_training, num_training))
         logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
+        if save:
+            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
 
 
 def training_KD(
@@ -126,7 +176,8 @@ def training_KD(
     num_validation,
     low_ratio,
     result_path,
-    logger):
+    logger,
+    save):
     lossfunction = nn.CrossEntropyLoss()
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -227,7 +278,8 @@ def training_KD(
               .format(acc_training*100, hit_training, num_training))
         logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+        if save:
+            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     print('Finished Training')
 
 
@@ -248,7 +300,12 @@ def training_Gram_KD(
     low_ratio,
     result_path,
     logger,
-    style_weight
+    style_weight,
+    norm_type,
+    patch_num,
+    gram_features,
+    hint,
+    save
     ):
 
     ce_loss = nn.CrossEntropyLoss()
@@ -261,87 +318,51 @@ def training_Gram_KD(
 
     teacher_net.eval()
 
-    for epoch in range(40):
-        loss = 0.
-        decay_lr(optimizer, epoch, init_lr, lr_decay)
-        net.train()
+    if hint:
+        print('1st stage Training using Gram loss')
+        for epoch in range(40):
+            loss = 0.
+            decay_lr(optimizer, epoch, init_lr, lr_decay)
+            net.train()
 
-        for x, x_low, y in training_generator:
-            x = x.cuda().float()
-            x_low = x_low.cuda().float()
-            y = y.cuda() - 1
+            for x, x_low, y in training_generator:
+                x = x.cuda().float()
+                x_low = x_low.cuda().float()
+                y = y.cuda() - 1
 
-            _, t_conv1, t_conv2 = teacher_net(x)
-            t_conv1 = t_conv1.detach()
-            t_conv2 = t_conv2.detach()
+                _, t_conv1, t_conv2, t_conv3, t_conv4, t_conv5 = teacher_net(x)
 
-            optimizer.zero_grad()
+                t_conv1 = t_conv1.detach()
+                t_conv2 = t_conv2.detach()
+                t_conv3 = t_conv3.detach()
+                t_conv4 = t_conv4.detach()
+                t_conv5 = t_conv5.detach()
 
-            _, s_conv1, s_conv2 = net(x_low)
+                optimizer.zero_grad()
 
-            bn, c, h, w = t_conv1.shape
-            bn2, c2, h2, w2 = t_conv2.shape
+                _, s_conv1, s_conv2, s_conv3, s_conv4, s_conv5 = net(x_low)
 
-            gram_losses = []
+                loss = []
 
-            for i in range(4):
-                x_ = int(round((w * i / 4.0)))
-                x_w = int(round((w * (i + 1) / 4.0)))
+                if 1 in gram_features:
+                    loss.append(calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num, style_weight, mse_loss))
+                if 2 in gram_features:
+                    loss.append(calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num, style_weight, mse_loss))
+                if 3 in gram_features:
+                    loss.append(calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num, style_weight, mse_loss))
+                if 4 in gram_features:
+                    loss.append(calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num, style_weight, mse_loss))
+                if 5 in gram_features:
+                    loss.append(calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss))
 
-                for j in range(4):
-                    y_ = int(round((h * j / 4.0)))
-                    y_h = int(round((h * (j + 1) / 4.0)))
+                # print loss
 
-                    t_conv1_vec = t_conv1[:, :, y_: y_h, x_:x_w]
-                    s_conv1_vec = s_conv1[:, :, y_: y_h, x_:x_w]
+                loss = torch.mean(torch.stack(loss))
 
-                    t_conv1_vec = t_conv1_vec.contiguous().view(bn, c, -1)
-                    s_conv1_vec = s_conv1_vec.contiguous().view(bn, c, -1)
-
-                    # t_conv1_vec = t_conv1_vec.div((x_w - x_) * (y_h - y_))
-                    # s_conv1_vec = s_conv1_vec.div((x_w - x_) * (y_h - y_))
-
-                    # t_conv1_vec = F.normalize(t_conv1_vec, p=2, dim=2)
-                    # s_conv1_vec = F.normalize(s_conv1_vec, p=2, dim=2)
-
-                    t_Gram = torch.bmm(t_conv1_vec, t_conv1_vec.permute((0, 2, 1)))
-                    s_Gram = torch.bmm(s_conv1_vec, s_conv1_vec.permute((0, 2, 1)))
-
-                    t_Gram = t_Gram.div((x_w - x_) * (y_h - y_))
-                    s_Gram = s_Gram.div((x_w - x_) * (y_h - y_))
-
-                    gram_losses.append(mse_loss(s_Gram, t_Gram))
-
-            loss = style_weight * torch.mean(torch.stack(gram_losses))
-
-            """
-            t_conv1_vec = t_conv1.view(bn, c, h * w)
-            s_conv1_vec = s_conv1.view(bn, c, h * w)
-            t_conv1_vec = F.normalize(t_conv1_vec, p=2, dim=2)
-            s_conv1_vec = F.normalize(s_conv1_vec, p=2, dim=2)
-
-            t_Gram = torch.bmm(t_conv1_vec, t_conv1_vec.permute((0, 2, 1)))
-            s_Gram = torch.bmm(s_conv1_vec, s_conv1_vec.permute((0, 2, 1)))
-            GRAM_mse_loss = mse_loss(s_Gram, t_Gram)
-
-            bn2, c2, h2, w2 = t_conv2.shape
-            t_conv2_vec = t_conv2.view(bn2, c2, h2 * w2)
-            s_conv2_vec = s_conv2.view(bn2, c2, h2 * w2)
-            t_conv2_vec = F.normalize(t_conv2_vec, p=2, dim=2)
-            s_conv2_vec = F.normalize(s_conv2_vec, p=2, dim=2)
-
-            t_Gram2 = torch.bmm(t_conv2_vec, t_conv2_vec.permute((0, 2, 1)))
-            s_Gram2 = torch.bmm(s_conv2_vec, s_conv2_vec.permute((0, 2, 1)))
-            GRAM_mse_loss2 = mse_loss(s_Gram2, t_Gram2)
-
-            loss = GRAM_mse_loss * style_weight + GRAM_mse_loss2 * style_weight
-            """
-            loss.backward()
-            optimizer.step()
-            print('In 1st stage, epoch : {}, gram loss : {}, total loss : {}'.format(
-                epoch, gram_losses, loss.data.cpu()))
-
-            return
+                loss.backward()
+                optimizer.step()
+            print('In 1st stage, epoch : {}, total loss : {}'.format(
+                    epoch, loss.data.cpu()))
 
     for epoch in range(epochs):
         loss= 0.
@@ -353,13 +374,20 @@ def training_Gram_KD(
             x_low = x_low.cuda().float()
             y = y.cuda() - 1
 
-            teacher, t_conv1, t_conv2 = teacher_net(x)
+            teacher, t_conv1, t_conv2, t_conv3, t_conv4, t_conv5 = teacher_net(x)
+
+            t_conv1 = t_conv1.detach()
+            t_conv2 = t_conv2.detach()
+            t_conv3 = t_conv3.detach()
+            t_conv4 = t_conv4.detach()
+            t_conv5 = t_conv5.detach()
 
             # Calculate gradient && Backpropagate
             optimizer.zero_grad()
 
             # Network output
-            student, s_conv1, s_conv2 = net(x_low)
+            student, s_conv1, s_conv2, s_conv3, s_conv4, s_conv5 = net(x_low)
+
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   F.softmax(teacher / temperature, dim=1))
 
@@ -367,46 +395,25 @@ def training_Gram_KD(
 
             GT_loss = ce_loss(student, y)
 
-            """
-            # Compute Gram matrix of conv features
-            bn, c, h, w = t_conv1.shape
-            t_conv1 = t_conv1.detach()
+            GRAM_loss = .0
 
-            t_conv1_vec = t_conv1.view(bn, c, h * w)
-            s_conv1_vec = s_conv1.view(bn, c, h * w)
+            if hint == False:
+                if 1 in gram_features:
+                    GRAM_loss += calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num, style_weight, mse_loss)
+                if 2 in gram_features:
+                    GRAM_loss += calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num, style_weight, mse_loss)
+                if 3 in gram_features:
+                    GRAM_loss += calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num, style_weight, mse_loss)
+                if 4 in gram_features:
+                    GRAM_loss += calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num, style_weight, mse_loss)
+                if 5 in gram_features:
+                    GRAM_loss += calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss)
 
-            t_conv1_vec = F.normalize(t_conv1_vec, p=2, dim=2)
-            s_conv1_vec = F.normalize(s_conv1_vec, p=2, dim=2)
+                GRAM_loss /= len(gram_features)
 
-            t_Gram = torch.bmm(t_conv1_vec, t_conv1_vec.permute((0, 2, 1)))
-            s_Gram = torch.bmm(s_conv1_vec, s_conv1_vec.permute((0, 2, 1)))
+            loss = KD_loss + GT_loss + GRAM_loss
 
-            # TODO: normalization?
-            # t_Gram = t_Gram.div((c * h * w) ** 2)
-            # s_Gram = s_Gram.div((c * h * w) ** 2)
-            GRAM_mse_loss= mse_loss(s_Gram, t_Gram)
-
-            bn2, c2, h2, w2 = t_conv2.shape
-            t_conv2 = t_conv2.detach()
-
-            t_conv2_vec = t_conv2.view(bn2, c2, h2 * w2)
-            s_conv2_vec = s_conv2.view(bn2, c2, h2 * w2)
-
-            t_conv2_vec = F.normalize(t_conv2_vec, p=2, dim=2)
-            s_conv2_vec = F.normalize(s_conv2_vec, p=2, dim=2)
-
-            t_Gram2 = torch.bmm(t_conv2_vec, t_conv2_vec.permute((0, 2, 1)))
-            s_Gram2 = torch.bmm(s_conv2_vec, s_conv2_vec.permute((0, 2, 1)))
-
-            # TODO: normalization?
-            # t_Gram2 = t_Gram2.div((c2 * h2 * w2) ** 2)
-            # s_Gram2 = s_Gram2.div((c2 * h2 * w2) ** 2)
-            GRAM_mse_loss2 = mse_loss(s_Gram2, t_Gram2)
-            """
-
-            loss = KD_loss + GT_loss # + style_weight / 2 * GRAM_mse_loss + style_weight / 2 * GRAM_mse_loss2
-
-            # print KD_loss.data.cpu(), GT_loss.data.cpu(), GRAM_mse_loss.data.cpu(), GRAM_mse_loss2.data.cpu()
+            print KD_loss.data.cpu(), GT_loss.data.cpu(), GRAM_loss.data.cpu()
 
             loss.backward()
             optimizer.step()
@@ -474,4 +481,6 @@ def training_Gram_KD(
               .format(acc_training*100, hit_training, num_training))
         logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+
+        if save:
+            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
