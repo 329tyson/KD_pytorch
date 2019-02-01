@@ -280,6 +280,41 @@ def training_Gram_KD(
             _, s_conv1, s_conv2 = net(x_low)
 
             bn, c, h, w = t_conv1.shape
+            bn2, c2, h2, w2 = t_conv2.shape
+
+            gram_losses = []
+
+            for i in range(4):
+                x_ = int(round((w * i / 4.0)))
+                x_w = int(round((w * (i + 1) / 4.0)))
+
+                for j in range(4):
+                    y_ = int(round((h * j / 4.0)))
+                    y_h = int(round((h * (j + 1) / 4.0)))
+
+                    t_conv1_vec = t_conv1[:, :, y_: y_h, x_:x_w]
+                    s_conv1_vec = s_conv1[:, :, y_: y_h, x_:x_w]
+
+                    t_conv1_vec = t_conv1_vec.contiguous().view(bn, c, -1)
+                    s_conv1_vec = s_conv1_vec.contiguous().view(bn, c, -1)
+
+                    # t_conv1_vec = t_conv1_vec.div((x_w - x_) * (y_h - y_))
+                    # s_conv1_vec = s_conv1_vec.div((x_w - x_) * (y_h - y_))
+
+                    # t_conv1_vec = F.normalize(t_conv1_vec, p=2, dim=2)
+                    # s_conv1_vec = F.normalize(s_conv1_vec, p=2, dim=2)
+
+                    t_Gram = torch.bmm(t_conv1_vec, t_conv1_vec.permute((0, 2, 1)))
+                    s_Gram = torch.bmm(s_conv1_vec, s_conv1_vec.permute((0, 2, 1)))
+
+                    t_Gram = t_Gram.div((x_w - x_) * (y_h - y_))
+                    s_Gram = s_Gram.div((x_w - x_) * (y_h - y_))
+
+                    gram_losses.append(mse_loss(s_Gram, t_Gram))
+
+            loss = style_weight * torch.mean(torch.stack(gram_losses))
+
+            """
             t_conv1_vec = t_conv1.view(bn, c, h * w)
             s_conv1_vec = s_conv1.view(bn, c, h * w)
             t_conv1_vec = F.normalize(t_conv1_vec, p=2, dim=2)
@@ -300,10 +335,13 @@ def training_Gram_KD(
             GRAM_mse_loss2 = mse_loss(s_Gram2, t_Gram2)
 
             loss = GRAM_mse_loss * style_weight + GRAM_mse_loss2 * style_weight
+            """
             loss.backward()
             optimizer.step()
-            print('In 1st stage, epoch : {}, gram loss : {}, gram loss2 : {}, total loss : {}'.format(
-                epoch, GRAM_mse_loss.data.cpu(), GRAM_mse_loss2.data.cpu(), loss.data.cpu()))
+            print('In 1st stage, epoch : {}, gram loss : {}, total loss : {}'.format(
+                epoch, gram_losses, loss.data.cpu()))
+
+            return
 
     for epoch in range(epochs):
         loss= 0.
