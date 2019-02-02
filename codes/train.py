@@ -413,8 +413,12 @@ def training_Gram_KD(
 
             loss = KD_loss + GT_loss + GRAM_loss
 
-            print KD_loss.data.cpu(), GT_loss.data.cpu(), GRAM_loss.data.cpu()
-
+            
+            # if hint == False:
+            #     print KD_loss.data.cpu(), GT_loss.data.cpu(), GRAM_loss.data.cpu()
+            # else:
+            #     print KD_loss.data.cpu(), GT_loss.data.cpu()
+                
             loss.backward()
             optimizer.step()
         net.eval()
@@ -433,7 +437,7 @@ def training_Gram_KD(
             y -= 1
 
             # Network output
-            output, _, _= net(x_low)
+            output, _, _, _, _, _ = net(x_low)
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -454,7 +458,7 @@ def training_Gram_KD(
             y -= 1
 
             # Network output
-            output, _, _ = net(x_low)
+            output, _, _, _, _, _  = net(x_low)
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)

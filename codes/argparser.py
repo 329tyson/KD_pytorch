@@ -108,8 +108,8 @@ def parse():
     )
     parser.add_argument(
         '--style_weight',
-        default=1,
-        type=int
+        default=1.0,
+        type=float
     )
     parser.add_argument(
         '--gram_enabled',
