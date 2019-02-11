@@ -106,6 +106,16 @@ def parse():
         default='./logs',
         help='Log directory, set to default as ./logs'
     )
+    parser.add_argument(
+        '--gpu',
+        default=0,
+        type=int,
+        help='Use specified gpu, not allowing multi-gpu')
+    parser.add_argument(
+        '--noise',
+        action='store_true',
+    )
+    parser.set_defaults(noise=False)
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
     parser.set_defaults(verbose=False)
