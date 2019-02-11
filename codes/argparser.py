@@ -116,9 +116,42 @@ def parse():
         action='store_true',
     )
     parser.set_defaults(noise=False)
+    parser.add_argument(
+        '--style_weight',
+        default=1.0,
+        type=float
+    )
+    parser.add_argument(
+        '--gram_enabled',
+        action='store_true',
+        help='if true, 1st is trained using Gram loss and KD in 2nd stage'
+    )
+    parser.add_argument(
+        '--norm_type',
+        default=0,
+        type = int,
+        help='Normalization type of feature map for gram matrix (0:no, 1:v/[h*w], 2:l2 vec, 3:mat/[h*w], 4:mat/[c*h*w])'
+    )
+    parser.add_argument(
+        '--patch_num',
+        default=1,
+        type=int
+    )
+    parser.add_argument('--gram_features', nargs='+', type=int)
+    parser.add_argument(
+        '--hint',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--save',
+        action='store_true'
+    )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
+    parser.set_defaults(gram_enbaled=False)
+    parser.set_defaults(hint=False)
     parser.set_defaults(verbose=False)
+    parser.set_defaults(save=False)
 
 
     args = parser.parse_args()
