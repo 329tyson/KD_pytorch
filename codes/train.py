@@ -5,6 +5,26 @@ import torch.nn.functional as F
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+def bhatta_loss(output, target):
+    out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target)))))
+    return out
 
 def decay_lr(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
@@ -188,6 +208,9 @@ def training_KD(
         print('are you serious ...?')
 
     teacher_net.eval()
+    kdloss = AverageMeter()
+    gtloss = AverageMeter()
+    bhloss = AverageMeter()
 
     for epoch in range(epochs):
         loss= 0.
@@ -205,10 +228,16 @@ def training_KD(
             optimizer.zero_grad()
 
             # Network output
-            _, student = net(x_low)
+            student = net(x_low)
+            # _, student = net(x_low)
+
+            t_conv1 = teacher[1]
+            s_conv1 = student[1]
+
             # only uncommnent when alexnet returns only one val
             teacher = teacher[0]
             student = student[0]
+
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   F.softmax(teacher / temperature, dim=1))
@@ -217,7 +246,13 @@ def training_KD(
 
             GT_loss = lossfunction(student, y)
 
+            # Batthacaryya loss
+            BH_loss = bhatta_loss(t_conv1, s_conv1)
+
             loss = KD_loss + GT_loss
+            kdloss.update(KD_loss.item(), x_low.size(0))
+            gtloss.update(GT_loss.item(), x_low.size(0))
+            bhloss.update(BH_loss.item())
 
             loss.backward()
             optimizer.step()
@@ -225,7 +260,12 @@ def training_KD(
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+            writer.add_scalars('losses', {'KD_loss':kdloss.avg,
+                                          'GT_loss':gtloss.avg,
+                                          'BH_loss':bhloss.avg
+                                          }, epoch + 1)
             continue
         # Test
         hit_training = 0
@@ -237,7 +277,10 @@ def training_KD(
             y -= 1
 
             # Network output
-            _, output= net(x_low)
+            ## for RACNN
+            # _, output= net(x_low)
+            ## for alexnet
+            output = net(x_low)
 
             output = output[0]
 
@@ -267,7 +310,11 @@ def training_KD(
             y -= 1
 
             # Network output
-            sr_x, output= net(x_low)
+
+            ## for RACNN
+            # sr_x, output= net(x_low)
+
+            ## for Alexnet
             output= net(x_low)
             output = output[0]
 
@@ -283,12 +330,12 @@ def training_KD(
                     if count_success > count_show :
                         continue
                     success.append(x_low[0])
-                    sr_success.append(sr_x[0])
+                    # sr_success.append(sr_x[0])
                     count_success += 1
                 elif count_failure < count_show + 1:
                     count_failure += 1
                     failure.append(x_low[0])
-                    sr_failure.append(sr_x[0])
+                    # sr_failure.append(sr_x[0])
             else:
                 _, prediction = torch.max(output, 1)
                 prediction = prediction.cpu().detach().numpy()
@@ -297,21 +344,23 @@ def training_KD(
         if ten_crop is True:
             torch.stack(success, dim=0)
             torch.stack(failure, dim=0)
-            torch.stack(sr_success, dim=0)
-            torch.stack(sr_failure, dim=0)
+            # torch.stack(sr_success, dim=0)
+            # torch.stack(sr_failure, dim=0)
             success = vutils.make_grid(success, normalize=True, scale_each=True)
             failure = vutils.make_grid(failure, normalize=True, scale_each=True)
-            sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
-            sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
+            # sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
+            # sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
 
             writer.add_image('Success', success, epoch + 1)
-            writer.add_image('SR_Success', sr_success, epoch + 1)
+            # writer.add_image('SR_Success', sr_success, epoch + 1)
             writer.add_image('Failure', failure, epoch + 1)
-            writer.add_image('SR_Failure', sr_failure, epoch + 1)
+            # writer.add_image('SR_Failure', sr_failure, epoch + 1)
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
