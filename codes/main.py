@@ -1,5 +1,6 @@
 from argparser import parse
 from alexnet import AlexNet
+from VGG_gap import VGG_gap
 from train import training
 from train import training_KD
 from train import training_Gram_KD
@@ -7,8 +8,12 @@ from preprocess import load_weight
 from preprocess import generate_dataset
 from logger import getlogger
 
+from torchvision import models
+
 import os
 import torch.optim as optim
+import torch
+
 
 if __name__ == '__main__':
     '''
@@ -37,6 +42,7 @@ if __name__ == '__main__':
     - args.path_num = 1
     - args.hint = False
     - args.save = False
+    - args.vgg_gap = False
     '''
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
@@ -53,20 +59,37 @@ if __name__ == '__main__':
     else:
         args.classes = 196
 
-    net = AlexNet(0.5, args.classes, ['fc8'])
+    if args.vgg_gap :
+        vgg16 = models.vgg16(True)
+        net = VGG_gap(vgg16, args.classes)
 
-    optimizer= optim.SGD(
-        [{'params':net.conv1.parameters()},
-         {'params':net.conv2.parameters()},
-         {'params':net.conv3.parameters()},
-         {'params':net.conv4.parameters()},
-         {'params':net.conv5.parameters()},
-         {'params':net.fc6.parameters()},
-         {'params':net.fc7.parameters()},
-         {'params':net.fc8.parameters(), 'lr':args.lr * 10}],
-        lr=args.lr,
-        momentum = 0.9,
-        weight_decay = 0.0005)
+        if args.pretrain_path != 'NONE':
+            net.load_state_dict(torch.load(args.pretrain_path))
+
+        optimizer = optim.SGD(
+            net.parameters(),
+            lr=args.lr,
+            momentum=0.9,
+            weight_decay=0.0005)
+
+    else:
+        net = AlexNet(0.5, args.classes, ['fc8'])
+        load_weight(net, args.pretrain_path)
+
+        optimizer= optim.SGD(
+            [{'params':net.conv1.parameters()},
+             {'params':net.conv2.parameters()},
+             {'params':net.conv3.parameters()},
+             {'params':net.conv4.parameters()},
+             {'params':net.conv5.parameters()},
+             {'params':net.fc6.parameters()},
+             {'params':net.fc7.parameters()},
+             {'params':net.fc8.parameters(), 'lr':args.lr * 10}],
+            lr=args.lr,
+            momentum = 0.9,
+            weight_decay = 0.0005)
+
+    net.cuda()
 
     if args.verbose is True:
         print('Training arguments settings')
@@ -80,9 +103,15 @@ if __name__ == '__main__':
             print('Invalid argument, choose low resolution (50 | 25)')
         else :
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
-            teacher_net = AlexNet(0.5, args.classes, ['fc8'])
-            load_weight(net, args.pretrain_path)
-            load_weight(teacher_net, args.pretrain_path)
+            if not args.vgg_gap:
+                teacher_net = AlexNet(0.5, args.classes, ['fc8'])
+                # load_weight(teacher_net, args.pretrain_path)
+                teacher_net.load_state_dict(net.state_dict())
+                teacher_net.cuda()
+            else:
+                teacher_net = VGG_gap(vgg16, args.classes)
+                teacher_net.load_state_dict(net.state_dict())
+                teacher_net.cuda()
             try:
                 train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
                     args.dataset,
@@ -128,6 +157,8 @@ if __name__ == '__main__':
                     args.patch_num,
                     args.gram_features,
                     args.hint,
+                    args.at_enabled,
+                    args.at_ratio,
                     args.save
                     )
 
@@ -155,13 +186,15 @@ if __name__ == '__main__':
                     args.low_ratio,
                     args.result,
                     logger,
-                    args.save)
+                    args.vgg_gap,
+                    args.save
+                    )
 
     else :
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')
             print('\t on ',args.dataset.upper(),' dataset, with hyper parameters above')
-            load_weight(net, args.pretrain_path)
+
             try:
                 train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
                     args.dataset,
@@ -187,12 +220,14 @@ if __name__ == '__main__':
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
                      args.low_ratio, args.result,
                      logger,
-                     args.save)
+                     args.vgg_gap,
+                     args.save
+                     )
         else:
             print('\nTraining Low Resolution images')
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
-            load_weight(net, args.pretrain_path)
+
             try:
                 train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
                     args.dataset,
@@ -217,5 +252,7 @@ if __name__ == '__main__':
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
                      args.low_ratio, args.result,
                      logger,
-                     args.save)
+                     args.vgg_gap,
+                     args.save
+                     )
 
