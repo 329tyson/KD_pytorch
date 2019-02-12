@@ -50,7 +50,6 @@ class SRLayer(nn.Module):
         layer.bias.data.fill_(0)
         return layer
 
-
 class AlexNet(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
                  weights_path='DEFAULT', res=None):
@@ -165,23 +164,21 @@ class AlexNet(nn.Module):
         print('\n')
 
     def init_layer(self, name, net):
-        # params = list(net.parameters())
         nn.init.xavier_uniform_(net.weight)
-        # nn.init.xavier_uniform_(net.bias)
         nn.init.constant_(net.bias, 0.0)
 
         return net
 
 
 class RACNN(nn.Module):
-    def __init__(self, keep_prob, num_classes, skip_layer, train_mode,
+    def __init__(self, keep_prob, num_classes, skip_layer,
                  alex_weights_path=None, alex_pretrained=False, from_npy=False,
                  sr_weights_path=None, sr_pretrained=False
                  ):
         super(RACNN, self).__init__()
 
         self.srLayer = SRLayer()
-        self.classificationLayer = AlexNet(keep_prob, num_classes, skip_layer, train_mode)
+        self.classificationLayer = AlexNet(keep_prob, num_classes, skip_layer)
 
         if sr_pretrained:
             sr_weights = torch.load(sr_weights_path)
@@ -210,7 +207,7 @@ class RACNN(nn.Module):
         sr_x = self.srLayer(x)
         output = self.classificationLayer(sr_x)
 
-        return output, sr_x
+        return sr_x, output
 
     def get_all_params_except_last_fc(self):
         b = []
