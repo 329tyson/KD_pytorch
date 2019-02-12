@@ -125,7 +125,8 @@ if __name__ == '__main__':
                 num_validation,
                 args.low_ratio,
                 args.result,
-                logger)
+                logger,
+                args.save)
         else:
             print('\nTraining Noise added Knowledge Distillation model')
             print('\t on ',args.dataset,' with hyper parameters above')
@@ -179,7 +180,8 @@ if __name__ == '__main__':
                 num_validation,
                 args.low_ratio,
                 args.result,
-                logger)
+                logger,
+                args.save)
 
             print('\nTraining starts')
             logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
@@ -203,7 +205,8 @@ if __name__ == '__main__':
                 num_validation,
                 args.low_ratio,
                 args.result,
-                logger)
+                logger,
+                args.save)
             if args.gram_enabled:
                 print('\nTraining starts')
                 logger = getlogger(args.log_dir + '/KD_WITH_GRAM_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))

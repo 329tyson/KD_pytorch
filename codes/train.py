@@ -206,6 +206,10 @@ def training_KD(
 
             # Network output
             _, student = net(x_low)
+            # only uncommnent when alexnet returns only one val
+            teacher = teacher[0]
+            student = student[0]
+
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   F.softmax(teacher / temperature, dim=1))
 
@@ -235,6 +239,8 @@ def training_KD(
             # Network output
             _, output= net(x_low)
 
+            output = output[0]
+
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
                 prediction = prediction.cpu().detach().numpy()
@@ -263,6 +269,7 @@ def training_KD(
             # Network output
             sr_x, output= net(x_low)
             output= net(x_low)
+            output = output[0]
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -278,7 +285,7 @@ def training_KD(
                     success.append(x_low[0])
                     sr_success.append(sr_x[0])
                     count_success += 1
-                elif count_failure < count_show:
+                elif count_failure < count_show + 1:
                     count_failure += 1
                     failure.append(x_low[0])
                     sr_failure.append(sr_x[0])
@@ -309,7 +316,6 @@ def training_KD(
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     print('Finished Training')
