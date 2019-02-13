@@ -23,6 +23,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 def bhatta_loss(output, target):
+    # print('output.shape : {}, target.shape : {}'.format(output.shape, target.shape))
     out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target)))))
     return out
 
@@ -114,13 +115,15 @@ def training(
             # Network output
             output = net(x)
 
+            # Comment only when AlexNet returns only one val
+            output = output[0]
+
             loss = lossfunction(output, y)
             loss.backward()
             optimizer.step()
         net.eval()
         # Test only 10, 20, 30... epochs
         if (epoch + 1) % 10 > 0 :
-            print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
             logger.debug('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
             continue
         hit_training = 0
@@ -133,6 +136,9 @@ def training(
 
             # Network output
             output= net(x)
+
+            # Comment only when AlexNet returns only one val
+            output = output[0]
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -155,6 +161,9 @@ def training(
             # Network output
             output= net(x)
 
+            # Comment only when AlexNet returns only one val
+            output = output[0]
+
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
                 prediction = prediction.cpu().detach().numpy()
@@ -168,11 +177,6 @@ def training(
 
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
         logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
@@ -210,7 +214,7 @@ def training_KD(
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
-    bhloss = AverageMeter()
+    bhlosses = []
 
     for epoch in range(epochs):
         loss= 0.
@@ -231,10 +235,11 @@ def training_KD(
             student = net(x_low)
             # _, student = net(x_low)
 
-            t_conv1 = teacher[1]
-            s_conv1 = student[1]
+            # only comment when alexnet returns only one val
 
-            # only uncommnent when alexnet returns only one val
+            t_convs = teacher[1:]
+            s_convs = student[1:]
+
             teacher = teacher[0]
             student = student[0]
 
@@ -247,12 +252,15 @@ def training_KD(
             GT_loss = lossfunction(student, y)
 
             # Batthacaryya loss
-            BH_loss = bhatta_loss(t_conv1, s_conv1)
+            for i in range(len(t_convs)):
+                t_conv = t_convs[i]
+                s_conv = s_convs[i]
+                bhlosses.append(bhatta_loss(t_conv, s_conv))
 
             loss = KD_loss + GT_loss
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
-            bhloss.update(BH_loss.item())
+            # bhloss.update(BH_loss.item())
 
             loss.backward()
             optimizer.step()
@@ -260,11 +268,16 @@ def training_KD(
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
-                         .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
+                         '\t[CONV1 BHLOSS : {:.3f}]'
+                         '\t[CONV2 BHLOSS : {:.3f}]'
+                         '\t[CONV3 BHLOSS : {:.3f}]'
+                         '\t[CONV4 BHLOSS : {:.3f}]'
+                         '\t[CONV5 BHLOSS : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg,
+                                 bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
                                           'GT_loss':gtloss.avg,
-                                          'BH_loss':bhloss.avg
                                           }, epoch + 1)
             continue
         # Test
@@ -358,8 +371,16 @@ def training_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
+                     '\t[CONV1 BHLOSS : {:.3f}]'
+                     '\t[CONV2 BHLOSS : {:.3f}]'
+                     '\t[CONV3 BHLOSS : {:.3f}]'
+                     '\t[CONV4 BHLOSS : {:.3f}]'
+                     '\t[CONV5 BHLOSS : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg,
+                             bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
+                     # .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))

@@ -9,13 +9,17 @@ def load_weight(net, pretrained_path, fit=True):
         converted = net.state_dict()
         for lname, val in pretrained.items():
             if 'conv' in lname:
-                converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-                converted[lname+".bias"] = torch.from_numpy(val[1])
+                converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+                converted[lname+".module.bias"] = torch.from_numpy(val[1])
+                # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+                # converted[lname+".bias"] = torch.from_numpy(val[1])
             elif 'fc8' in lname:
                 continue
             elif 'fc' in lname:
-                converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
-                converted[lname+".bias"] = torch.from_numpy(val[1])
+                # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
+                # converted[lname+".bias"] = torch.from_numpy(val[1])
+                converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(1,0))
+                converted[lname+".module.bias"] = torch.from_numpy(val[1])
         net.load_state_dict(converted, strict = fit)
         net.cuda()
     else:
