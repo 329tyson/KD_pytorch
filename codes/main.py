@@ -155,6 +155,7 @@ if __name__ == '__main__':
                 args.low_ratio,
                 args.result,
                 logger,
+                args.vgg_gap,
                 args.save)
         else:
             print('\nTraining Noise added Knowledge Distillation model')
@@ -210,6 +211,7 @@ if __name__ == '__main__':
                 args.low_ratio,
                 args.result,
                 logger,
+                args.vgg_gap,
                 args.save)
 
             print('\nTraining starts')
@@ -235,6 +237,7 @@ if __name__ == '__main__':
                 args.low_ratio,
                 args.result,
                 logger,
+                args.vgg_gap,
                 args.save)
             if args.gram_enabled:
                 print('\nTraining starts')
