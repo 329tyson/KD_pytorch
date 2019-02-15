@@ -152,6 +152,25 @@ class AlexNet(nn.Module):
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
 
+        self.relu1 = nn.DataParallel(self.relu1)
+        self.norm1 = nn.DataParallel(self.norm1)
+        self.pool1 = nn.DataParallel(self.pool1)
+
+        self.relu2 = nn.DataParallel(self.relu2)
+        self.norm2 = nn.DataParallel(self.norm2)
+        self.pool2 = nn.DataParallel(self.pool2)
+
+        self.relu3 = nn.DataParallel(self.relu3)
+        self.relu4 = nn.DataParallel(self.relu4)
+
+        self.relu5 = nn.DataParallel(self.relu5)
+        self.pool5 = nn.DataParallel(self.pool5)
+
+        self.relu6 = nn.DataParallel(self.relu6)
+        self.dropout6 = nn.DataParallel(self.dropout6)
+
+        self.relu7 = nn.DataParallel(self.relu7)
+        self.dropout7 = nn.DataParallel(self.dropout7)
         print('[AlexNet]')
         print('pool1', self.pool1)
         print('pool2', self.pool2)
@@ -166,6 +185,8 @@ class AlexNet(nn.Module):
     def init_layer(self, name, net):
         nn.init.xavier_uniform_(net.weight)
         nn.init.constant_(net.bias, 0.0)
+
+        net = nn.DataParallel(net)
 
         return net
 
