@@ -22,9 +22,25 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def bhatta_loss(output, target):
+def bhatta_loss(output, target, prev, mode='numpy'):
     # print('output.shape : {}, target.shape : {}'.format(output.shape, target.shape))
-    out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target)))))
+    if mode == 'numpy':
+        result_mul = output * target
+        diff = result_mul - prev
+        prev = result_mul
+        result_abs = np.abs(result_mul)
+        result_sqrt = np.sqrt(result_abs)
+        result_sum = np.sum(result_sqrt, axis =(1, 2, 3))
+        result_log = np.log(result_sum)
+        print('result_diff : {}'.format(np.sum(diff, axis = (1,2,3))))
+        if np.equal(prev, result_mul).all() is True:
+            print('equal to prev')
+        else:
+            print('not equal')
+        import ipdb; ipdb.set_trace()
+        out = -np.mean(result_log)
+    else:
+        out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target)))))
     return out
 
 def decay_lr(optimizer, epoch, init_lr, decay_period):
@@ -214,6 +230,7 @@ def training_KD(
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
+    prev = np.zeros(5)
     bhlosses = []
 
     for epoch in range(epochs):
@@ -236,9 +253,16 @@ def training_KD(
             # _, student = net(x_low)
 
             # only comment when alexnet returns only one val
-
             t_convs = teacher[1:]
             s_convs = student[1:]
+
+            for i in range(len(t_convs)):
+                t_conv = t_convs[i].cpu().detach().numpy()
+                s_conv = s_convs[i].cpu().detach().numpy()
+                if np.equal(np.zeros(1), prev[i]) is True:
+                    prev[i] = np.zeros(t_conv.shape)
+                print('Conv{} values'.format(str(i)))
+                bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
 
             teacher = teacher[0]
             student = student[0]
@@ -251,16 +275,18 @@ def training_KD(
 
             GT_loss = lossfunction(student, y)
 
-            # Batthacaryya loss
-            for i in range(len(t_convs)):
-                t_conv = t_convs[i]
-                s_conv = s_convs[i]
-                bhlosses.append(bhatta_loss(t_conv, s_conv))
 
             loss = KD_loss + GT_loss
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
             # bhloss.update(BH_loss.item())
+
+            logger.debug('\t[CONV1 Distance : {:.5f}]'
+                         '\t[CONV2 Distance : {:.5f}]'
+                         '\t[CONV5 Distance : {:.5f}]'
+                         '\t[CONV4 Distance : {:.5f}]'
+                         '\t[CONV5 Distance : {:.5f}]'
+                         .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
 
             loss.backward()
             optimizer.step()
@@ -269,11 +295,11 @@ def training_KD(
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
             logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
-                         '\t[CONV1 BHLOSS : {:.3f}]'
-                         '\t[CONV2 BHLOSS : {:.3f}]'
-                         '\t[CONV3 BHLOSS : {:.3f}]'
-                         '\t[CONV4 BHLOSS : {:.3f}]'
-                         '\t[CONV5 BHLOSS : {:.3f}]'
+                         '\t[CONV1 Distance : {:.5f}]'
+                         '\t[CONV2 Distance : {:.5f}]'
+                         '\t[CONV3 Distance : {:.5f}]'
+                         '\t[CONV4 Distance : {:.5f}]'
+                         '\t[CONV5 Distance : {:.5f}]'
                          .format(epoch+1,kdloss.avg, gtloss.avg,
                                  bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,

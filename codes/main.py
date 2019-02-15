@@ -48,8 +48,8 @@ if __name__ == '__main__':
     args.result = os.path.join(args.root, args.result)
     args.log_dir = os.path.join(args.root, args.log_dir)
 
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
+    # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    # os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
