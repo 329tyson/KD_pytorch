@@ -21,12 +21,9 @@ def load_weight(net, pretrained_path, fit=True):
                 converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(1,0))
                 converted[lname+".module.bias"] = torch.from_numpy(val[1])
         net.load_state_dict(converted, strict = fit)
-        net.cuda()
     else:
         weight = torch.load(pretrained_path)
         net.load_state_dict(weight, strict = fit)
-        net.cuda()
-
 
 def generate_dataset(
     dataset,
