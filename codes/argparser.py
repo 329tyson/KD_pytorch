@@ -112,11 +112,6 @@ def parse():
         type=int,
         help='Use specified gpu, not allowing multi-gpu')
     parser.add_argument(
-        '--noise',
-        action='store_true',
-    )
-    parser.set_defaults(noise=False)
-    parser.add_argument(
         '--style_weight',
         default=1.0,
         type=float
