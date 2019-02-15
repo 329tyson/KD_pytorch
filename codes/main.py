@@ -132,31 +132,69 @@ if __name__ == '__main__':
             except ValueError:
                 print('inapproriate dataset, please put cub or stanford')
 
-            print('\nTraining starts')
-            logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
-            for arg in vars(args):
-                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-            training_KD(
-                teacher_net,
-                net,
-                optimizer,
-                args.kd_temperature,
-                args.lr,
-                args.lr_decay,
-                args.epochs,
-                args.ten_batch_eval,
-                train_loader,
-                eval_train_loader,
-                eval_validation_loader,
-                num_training,
-                num_validation,
-                args.low_ratio,
-                args.result,
-                logger,
-                args.vgg_gap,
-                args.save)
+            if args.gram_enabled:
+                print('\nTraining starts')
+                logger = getlogger(args.log_dir + '/KD_WITH_GRAM_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+                for arg in vars(args):
+                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
+                logger.info(
+                    '\nTraining model with KD & Gram, Low resolution of {}x{}'.format(str(args.low_ratio),
+                                                                                              str(args.low_ratio)))
+                logger.info('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+                training_Gram_KD(
+                    teacher_net,
+                    net,
+                    optimizer,
+                    args.kd_temperature,
+                    args.lr,
+                    args.lr_decay,
+                    args.epochs,
+                    args.ten_batch_eval,
+                    train_loader,
+                    eval_train_loader,
+                    eval_validation_loader,
+                    num_training,
+                    num_validation,
+                    args.low_ratio,
+                    args.result,
+                    logger,
+                    args.style_weight,
+                    args.norm_type,
+                    args.patch_num,
+                    args.gram_features,
+                    args.hint,
+                    args.at_enabled,
+                    args.at_ratio,
+                    args.save
+                )
+
+            else:
+                print('\nTraining starts')
+                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+                for arg in vars(args):
+                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
+                logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+                logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+                training_KD(
+                    teacher_net,
+                    net,
+                    optimizer,
+                    args.kd_temperature,
+                    args.lr,
+                    args.lr_decay,
+                    args.epochs,
+                    args.ten_batch_eval,
+                    train_loader,
+                    eval_train_loader,
+                    eval_validation_loader,
+                    num_training,
+                    num_validation,
+                    args.low_ratio,
+                    args.result,
+                    logger,
+                    args.vgg_gap,
+                    args.save
+                )
         else:
             print('\nTraining Noise added Knowledge Distillation model')
             print('\t on ',args.dataset,' with hyper parameters above')
@@ -239,69 +277,6 @@ if __name__ == '__main__':
                 logger,
                 args.vgg_gap,
                 args.save)
-            if args.gram_enabled:
-                print('\nTraining starts')
-                logger = getlogger(args.log_dir + '/KD_WITH_GRAM_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
-                for arg in vars(args):
-                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-                logger.info(
-                    '\nTraining model with KD & Gram, Low resolution of {}x{}'.format(str(args.low_ratio),
-                                                                                              str(args.low_ratio)))
-                logger.info('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
-                training_Gram_KD(
-                    teacher_net,
-                    net,
-                    optimizer,
-                    args.kd_temperature,
-                    args.lr,
-                    args.lr_decay,
-                    args.epochs,
-                    args.ten_batch_eval,
-                    train_loader,
-                    eval_train_loader,
-                    eval_validation_loader,
-                    num_training,
-                    num_validation,
-                    args.low_ratio,
-                    args.result,
-                    logger,
-                    args.style_weight,
-                    args.norm_type,
-                    args.patch_num,
-                    args.gram_features,
-                    args.hint,
-                    args.at_enabled,
-                    args.at_ratio,
-                    args.save
-                    )
-
-            else:
-                print('\nTraining starts')
-                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
-                for arg in vars(args):
-                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-                logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-                logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-                training_KD(
-                    teacher_net,
-                    net,
-                    optimizer,
-                    args.kd_temperature,
-                    args.lr,
-                    args.lr_decay,
-                    args.epochs,
-                    args.ten_batch_eval,
-                    train_loader,
-                    eval_train_loader,
-                    eval_validation_loader,
-                    num_training,
-                    num_validation,
-                    args.low_ratio,
-                    args.result,
-                    logger,
-                    args.vgg_gap,
-                    args.save
-                    )
 
     else :
         if args.low_ratio == 0:
