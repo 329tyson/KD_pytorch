@@ -146,13 +146,27 @@ def parse():
         '--save',
         action='store_true'
     )
+    parser.add_argument(
+        '--vgg_gap',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--at_ratio',
+        type=float,
+        default=1
+    )
+    parser.add_argument(
+        '--at_enabled',
+        action='store_true'
+    )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
     parser.set_defaults(gram_enbaled=False)
     parser.set_defaults(hint=False)
     parser.set_defaults(verbose=False)
     parser.set_defaults(save=False)
-
+    parser.set_defaults(vgg_gap=False)
+    parser.set_defaults(at_enabled=False)
 
     args = parser.parse_args()
 
