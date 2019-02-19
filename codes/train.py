@@ -319,7 +319,7 @@ def training_KD(
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
-    conv1loss = AverageMeter()
+    convloss = AverageMeter()
     prev = []
     bhlosses = []
 
@@ -379,7 +379,9 @@ def training_KD(
                 s_convs.append(v)
 
             BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
-
+            MSE_loss = 0
+            for t, s in zip(t_convs, s_convs):
+                MSE_loss += 0.025 * nn.MSELoss()(s,t)
 
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
@@ -391,11 +393,11 @@ def training_KD(
 
 
             # loss = KD_loss + GT_loss - BH_loss
-            loss = KD_loss + GT_loss
+            loss = KD_loss + GT_loss + MSE_loss
 
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
-            conv1loss.update(BH_loss.item(), x_low.size(0))
+            convloss.update(MSE_loss.item(), x_low.size(0))
 
             for i in range(len(t_convs)):
                 t_conv = t_convs[i].cpu().detach().numpy()
@@ -405,38 +407,38 @@ def training_KD(
                     bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
                 else:
                     bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
-            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv1_loss : {:.3f}]\n'
+            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
                          # '\t[CONV1 Distance : {}]'
                          # '\t[CONV2 Distance : {}]'
                          # '\t[CONV3 Distance : {}]'
                          # '\t[CONV4 Distance : {}]'
                          # '\t[CONV5 Distance : {}]'
-                         # .format(epoch+1,kdloss.avg, gtloss.avg, conv1loss.avg,
+                         # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
                                  # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-            logger.debug('\t[CONV1 Distance : {}]'
-                         '\t[CONV2 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
-                         '\t[CONV4 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
-                         .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+            # logger.debug('\t[CONV1 Distance : {}]'
+                         # '\t[CONV2 Distance : {}]'
+                         # '\t[CONV5 Distance : {}]'
+                         # '\t[CONV4 Distance : {}]'
+                         # '\t[CONV5 Distance : {}]'
+                         # .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
 
             loss.backward()
-            print(loss.grad)
             optimizer.step()
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv1_loss : {:.3f}]\n'
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
                          '\t[CONV1 Distance : {}]'
                          '\t[CONV2 Distance : {}]'
                          '\t[CONV3 Distance : {}]'
                          '\t[CONV4 Distance : {}]'
                          '\t[CONV5 Distance : {}]'
-                         .format(epoch+1,kdloss.avg, gtloss.avg, conv1loss.avg,
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
                                  bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
                                           'GT_loss':gtloss.avg,
+                                          'MSE_loss':convloss.avg,
                                           }, epoch + 1)
             continue
         # Test
