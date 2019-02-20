@@ -46,6 +46,9 @@ if __name__ == '__main__':
     - args.hint = False
     - args.save = False
     - args.vgg_gap = False
+    ...
+    - args.mse_conv = None
+    - args.mse_weight = 0
     '''
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
@@ -54,8 +57,8 @@ if __name__ == '__main__':
     args.result = os.path.join(args.root, args.result)
     args.log_dir = os.path.join(args.root, args.log_dir)
 
-    # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    # os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
@@ -111,8 +114,11 @@ if __name__ == '__main__':
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
             if not args.vgg_gap:
                 teacher_net = AlexNet(0.5, args.classes, ['fc8'])
-                # load_weight(teacher_net, args.pretrain_path)
-                teacher_net.load_state_dict(net.state_dict())
+                # for single gpu
+                load_weight(teacher_net, args.pretrain_path)
+
+                ## for multi gpu
+                # teacher_net.load_state_dict(net.state_dict())
                 teacher_net.cuda()
             else:
                 teacher_net = VGG_gap(vgg16, args.classes)
@@ -170,7 +176,8 @@ if __name__ == '__main__':
             # else for gram_enabled
             else:
                 print('\nTraining starts')
-                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}'
+                                   .format(args.dataset, str(args.low_ratio), args.mse_conv.replace(' ',''), str(args.mse_weight)))
                 for arg in vars(args):
                     logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
                 logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
@@ -193,7 +200,9 @@ if __name__ == '__main__':
                     args.result,
                     logger,
                     args.vgg_gap,
-                    args.save
+                    args.save,
+                    args.mse_conv,
+                    args.mse_weight
                )
     else :
         if args.low_ratio == 0:

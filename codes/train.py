@@ -21,6 +21,8 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+def isNaN(num):
+    return num != num
 
 def bhatta_loss(output, target, prev=[], mode='numpy'):
     if mode == 'numpy':
@@ -307,10 +309,13 @@ def training_KD(
     result_path,
     logger,
     vgg_gap,
-    save
+    save,
+    mse_conv,
+    mse_weight
     ):
     lossfunction = nn.CrossEntropyLoss()
     writer = SummaryWriter()
+    max_accuracy = 0.
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
     else:
@@ -322,6 +327,7 @@ def training_KD(
     convloss = AverageMeter()
     prev = []
     bhlosses = []
+    logger.debug('\nUsing mseloss with convnets {}, with mse weight value {}'.format(mse_conv, mse_weight))
 
     """
     # get the softmax(?) weight
@@ -357,7 +363,7 @@ def training_KD(
 
             # Calculate Region KD between CAM region of teacher & student
             """
-            bn, c, h, w = t_feature.shape
+            kn, c, h, w = t_feature.shape
 
             t_CAMs = CAM(t_feature, weight_softmax, y).view(bn, -1, h, w)
             s_CAMs = CAM(s_feature, weight_softmax, y).view(bn, -1, h, w)
@@ -380,8 +386,9 @@ def training_KD(
 
             BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
-            for t, s in zip(t_convs, s_convs):
-                MSE_loss += 0.025 * nn.MSELoss()(s,t)
+
+            for i in mse_conv.split():
+                MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
 
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
@@ -394,6 +401,9 @@ def training_KD(
 
             # loss = KD_loss + GT_loss - BH_loss
             loss = KD_loss + GT_loss + MSE_loss
+            if isNaN(loss.item()) is True:
+                logger.error("This combination failed due to the NaN loss value")
+                exit(1)
 
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
@@ -433,7 +443,7 @@ def training_KD(
                          '\t[CONV2 Distance : {}]'
                          '\t[CONV3 Distance : {}]'
                          '\t[CONV4 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
+                         '\t[CONV5 Distance : {}]\n'
                          .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
                                  bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
@@ -553,9 +563,11 @@ def training_KD(
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
+        if max_accuracy < acc_validation * 100 : max_accuracy = acc_validation
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
-    print('Finished Training')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {}'.format(max_accuracy))
 
 
 def training_Gram_KD(

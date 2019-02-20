@@ -154,6 +154,17 @@ def parse():
         '--at_enabled',
         action='store_true'
     )
+    parser.add_argument(
+        '--mse_conv',
+        default = None,
+        help = 'convnets to be used in mse loss'
+    )
+    parser.add_argument(
+        '--mse_weight',
+        type=float,
+        default = 0,
+        help = 'weight to be used in mse loss'
+    )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
     parser.set_defaults(gram_enbaled=False)
