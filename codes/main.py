@@ -176,8 +176,12 @@ if __name__ == '__main__':
             # else for gram_enabled
             else:
                 print('\nTraining starts')
-                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}'
+                if args.mse_conv is not None:
+                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}'
                                    .format(args.dataset, str(args.low_ratio), args.mse_conv.replace(' ',''), str(args.mse_weight)))
+                else:
+                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
+                                   .format(args.dataset, str(args.low_ratio)))
                 for arg in vars(args):
                     logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
                 logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))

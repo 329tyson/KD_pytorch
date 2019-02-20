@@ -22,6 +22,8 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 def isNaN(num):
+    if num == float("inf"):
+        return True
     return num != num
 
 def bhatta_loss(output, target, prev=[], mode='numpy'):
@@ -32,7 +34,8 @@ def bhatta_loss(output, target, prev=[], mode='numpy'):
         result_abs = np.abs(result_mul)
         result_sqrt = np.sqrt(result_abs)
         result_sum = np.sum(result_sqrt, axis =(1, 2, 3))
-        result_log = np.log(result_sum)
+        epsilon  = 0.00001
+        result_log = np.log(result_sum + epsilon)
         out = -np.mean(result_log)
     else:
         out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target))), (1,2,3)))
@@ -327,7 +330,7 @@ def training_KD(
     convloss = AverageMeter()
     prev = []
     bhlosses = []
-    logger.debug('\nUsing mseloss with convnets {}, with mse weight value {}'.format(mse_conv, mse_weight))
+    logger.debug('\nUsing mseloss with convnets {} with mse weight value {}'.format(mse_conv, mse_weight))
 
     """
     # get the softmax(?) weight
@@ -387,8 +390,9 @@ def training_KD(
             BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
 
-            for i in mse_conv.split():
-                MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
+            if mse_conv is not None:
+                for i in mse_conv.split():
+                    MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
 
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
@@ -400,14 +404,18 @@ def training_KD(
 
 
             # loss = KD_loss + GT_loss - BH_loss
-            loss = KD_loss + GT_loss + MSE_loss
+            if mse_conv is not None:
+                loss = KD_loss + GT_loss + MSE_loss
+                convloss.update(MSE_loss.item(), x_low.size(0))
+            else:
+                loss = KD_loss + GT_loss
+                convloss.update(0)
             if isNaN(loss.item()) is True:
-                logger.error("This combination failed due to the NaN loss value")
+                logger.error("This combination failed due to the NaN|inf loss value")
                 exit(1)
 
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
-            convloss.update(MSE_loss.item(), x_low.size(0))
 
             for i in range(len(t_convs)):
                 t_conv = t_convs[i].cpu().detach().numpy()
