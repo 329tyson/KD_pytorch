@@ -578,7 +578,7 @@ def training_KD(
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     logger.debug('Finished Training\n')
-    logger.debug('MAX_ACCURACY : {}'.format(max_accuracy))
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
 
 def training_Gram_KD(
