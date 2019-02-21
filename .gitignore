@@ -16,4 +16,3 @@ data/
 *.npy
 *.tgz
 *.pyc
-*.sh
