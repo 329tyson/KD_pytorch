@@ -387,7 +387,7 @@ def training_KD(
             for k,v in s_feature.items():
                 s_convs.append(v)
 
-            BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
+            # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
 
             if mse_conv is not None:
@@ -417,14 +417,15 @@ def training_KD(
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
 
-            for i in range(len(t_convs)):
-                t_conv = t_convs[i].cpu().detach().numpy()
-                s_conv = s_convs[i].cpu().detach().numpy()
-                if len(prev) < i + 1:
-                    prev.append(np.zeros(t_conv.shape))
-                    bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
-                else:
-                    bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
+            # for i in range(len(t_convs)):
+                # t_conv = t_convs[i].cpu().detach().numpy()
+                # s_conv = s_convs[i].cpu().detach().numpy()
+                # if len(prev) < i + 1:
+                    # prev.append(np.zeros(t_conv.shape))
+                    # bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
+                # else:
+                    # bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
+
             # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
                          # '\t[CONV1 Distance : {}]'
                          # '\t[CONV2 Distance : {}]'
@@ -446,14 +447,16 @@ def training_KD(
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
-                         '\t[CONV1 Distance : {}]'
-                         '\t[CONV2 Distance : {}]'
-                         '\t[CONV3 Distance : {}]'
-                         '\t[CONV4 Distance : {}]'
-                         '\t[CONV5 Distance : {}]\n'
-                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
-                                 bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_LOSS : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
+                         # '\t[CONV1 Distance : {:.2f}]'
+                         # '\t[CONV2 Distance : {:.2f}]'
+                         # '\t[CONV2 Distance : {:.2f}]'
+                         # '\t[CONV4 Distance : {:.2f}]'
+                         # '\t[CONV5 Distance : {:.2f}]\n'
+                         # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
+                                 # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
                                           'GT_loss':gtloss.avg,
                                           'MSE_loss':convloss.avg,
@@ -556,16 +559,16 @@ def training_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
-                     '\t[CONV1 BHLOSS : {:.3f}]'
-                     '\t[CONV2 BHLOSS : {:.3f}]'
-                     '\t[CONV3 BHLOSS : {:.3f}]'
-                     '\t[CONV4 BHLOSS : {:.3f}]'
-                     '\t[CONV5 BHLOSS : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg,
-                             bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
-                     # .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
+                     # '\t[CONV1 BHLOSS : {:.3f}]'
+                     # '\t[CONV2 BHLOSS : {:.3f}]'
+                     # '\t[CONV3 BHLOSS : {:.3f}]'
+                     # '\t[CONV4 BHLOSS : {:.3f}]'
+                     # '\t[CONV5 BHLOSS : {:.3f}]'
+                     # .format(epoch+1,kdloss.avg, gtloss.avg,
+                             # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
