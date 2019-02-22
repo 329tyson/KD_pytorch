@@ -5,6 +5,8 @@ from alexnet import RACNN
 from train import training
 from train import training_KD
 from train import training_Gram_KD
+from save_gradient import calculate_grad 
+from save_gradient import calculate_gradCAM
 from preprocess import load_weight
 from preprocess import generate_dataset
 from logger import getlogger
@@ -54,8 +56,8 @@ if __name__ == '__main__':
     args.result = os.path.join(args.root, args.result)
     args.log_dir = os.path.join(args.root, args.log_dir)
 
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
+    # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    # os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
@@ -131,6 +133,12 @@ if __name__ == '__main__':
                     args.kd_enabled)
             except ValueError:
                 print('inapproriate dataset, please put cub or stanford')
+
+            # To execute folloing calculate_grad*, batch_size should be 1 and img_path should be contained in dataloader results
+            # Use only for visualization
+            # calculate_grad(teacher_net, train_loader)
+            # calculate_gradCAM(teacher_net, train_loader)
+            # raise Stop
 
             if args.gram_enabled:
                 print('\nTraining starts')
