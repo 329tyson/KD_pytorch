@@ -107,7 +107,7 @@ if __name__ == '__main__':
     if args.kd_enabled is True:
         if args.low_ratio == 0:
             print('Invalid argument, choose low resolution (50 | 25)')
-        elif args.noise is False:
+        else:
             print('\nTraining Knowledge Distillation model')
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
@@ -175,7 +175,7 @@ if __name__ == '__main__':
                     args.at_ratio,
                     args.save
                 )
-
+            # else for gram_enabled
             else:
                 print('\nTraining starts')
                 logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
@@ -202,90 +202,7 @@ if __name__ == '__main__':
                     logger,
                     args.vgg_gap,
                     args.save
-                )
-        else:
-            print('\nTraining Noise added Knowledge Distillation model')
-            print('\t on ',args.dataset,' with hyper parameters above')
-            print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
-            noise_net = RACNN(0.5, args.classes, ['fc8'],
-                              alex_weights_path = args.pretrain_path,
-                              alex_pretrained = True)
-            teacher_net = AlexNet(0.5, args.classes, ['fc8'])
-            noise_net.cuda()
-            optimizer = optim.SGD([{'params':noise_net.srLayer.parameters(), 'lr': 2.0 * args.lr},
-                                   {'params':noise_net.get_all_params_except_last_fc(), 'lr': 0.0},
-                                   {'params':noise_net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
-                                    'weight_decay': 1.0 * 0.0005},
-                                   {'params':noise_net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
-                                    'weight_decay': 0.0}],
-                                  momentum=0.95, weight_decay=0.0005)
-            load_weight(teacher_net, args.pretrain_path)
-            try:
-                train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
-                    args.dataset,
-                    args.batch,
-                    args.annotation_train,
-                    args.annotation_val,
-                    args.data,
-                    args.low_ratio,
-                    args.ten_batch_eval,
-                    args.verbose,
-                    args.kd_enabled)
-            except ValueError:
-                print('inapproriate dataset, please put cub or stanford')
-
-            print('\nTraining starts')
-            logger = getlogger(args.log_dir + '/NOISE_KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
-            for arg in vars(args):
-                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.info('\nTraining Noise added Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-            training_KD(
-                teacher_net,
-                noise_net,
-                optimizer,
-                args.kd_temperature,
-                args.lr,
-                args.lr_decay,
-                args.epochs,
-                args.ten_batch_eval,
-                train_loader,
-                eval_train_loader,
-                eval_validation_loader,
-                num_training,
-                num_validation,
-                args.low_ratio,
-                args.result,
-                logger,
-                args.vgg_gap,
-                args.save)
-
-            print('\nTraining starts')
-            logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
-            for arg in vars(args):
-                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
-            training_KD(
-                teacher_net,
-                net,
-                optimizer,
-                args.kd_temperature,
-                args.lr,
-                args.lr_decay,
-                args.epochs,
-                args.ten_batch_eval,
-                train_loader,
-                eval_train_loader,
-                eval_validation_loader,
-                num_training,
-                num_validation,
-                args.low_ratio,
-                args.result,
-                logger,
-                args.vgg_gap,
-                args.save)
-
+               )
     else :
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')
