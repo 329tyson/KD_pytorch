@@ -45,6 +45,7 @@ class Dataset(data.Dataset):
                 self.Bbox[idx][3]
             )
             return image, low_image, img_label
+            # return image, low_image, img_label, img_path
 
         if self.ten_crop is False:
             image= self.transform(
@@ -64,6 +65,7 @@ class Dataset(data.Dataset):
             )
 
         return image, img_label
+        # return image, img_label, img_path
 
     def load_mat(self):
         self.filePath= []
