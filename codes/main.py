@@ -5,6 +5,8 @@ from alexnet import RACNN
 from train import training
 from train import training_KD
 from train import training_Gram_KD
+from save_gradient import calculate_grad
+from save_gradient import calculate_gradCAM
 from preprocess import load_weight
 from preprocess import generate_dataset
 from logger import getlogger
@@ -138,15 +140,26 @@ if __name__ == '__main__':
             except ValueError:
                 print('inapproriate dataset, please put cub or stanford')
 
+            # To execute folloing calculate_grad*, batch_size should be 1 and img_path should be contained in dataloader results
+            # Use only for visualization
+            # calculate_grad(teacher_net, train_loader)
+            # calculate_gradCAM(teacher_net, train_loader)
+            # raise Stop
+
             if args.gram_enabled:
                 print('\nTraining starts')
-                logger = getlogger(args.log_dir + '/KD_WITH_GRAM_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+                if args.gram_features is not None:
+                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}_RATIO_{}'
+                                   .format(args.dataset, str(args.low_ratio), args.gram_features.replace(' ',''), str(args.style_weight), str(args.at_ratio)))
+                else:
+                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
+                                   .format(args.dataset, str(args.low_ratio)))
                 for arg in vars(args):
-                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-                logger.info(
+                    logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+                logger.debug(
                     '\nTraining model with KD & Gram, Low resolution of {}x{}'.format(str(args.low_ratio),
                                                                                               str(args.low_ratio)))
-                logger.info('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+                logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
                 training_Gram_KD(
                     teacher_net,
                     net,
@@ -183,9 +196,9 @@ if __name__ == '__main__':
                     logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
                 for arg in vars(args):
-                    logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-                logger.info('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-                logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+                    logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+                logger.debug('\nTraining Knowledge Distillation model, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+                logger.debug('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
                 training_KD(
                     teacher_net,
                     net,
@@ -230,9 +243,9 @@ if __name__ == '__main__':
             print('\nTraining starts')
             logger = getlogger(args.log_dir + '/DATASET_{}_HIGH_RES'.format(args.dataset))
             for arg in vars(args):
-                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.info('\nTraining High Resolution images')
-            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+                logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.debug('\nTraining High Resolution images')
+            logger.debug('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
             training(net, optimizer,
                      args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
@@ -262,9 +275,9 @@ if __name__ == '__main__':
             print('\nTraining starts')
             logger = getlogger(args.log_dir + '/DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
             for arg in vars(args):
-                logger.info('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.info('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
-            logger.info('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+                logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.debug('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+            logger.debug('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
             training(net, optimizer,
                      args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
