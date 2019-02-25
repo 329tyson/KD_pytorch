@@ -172,24 +172,27 @@ def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, m
 
 def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
     bn, c, h, w = t_feature.shape
-    
+
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
-    
+
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
-    
+
     # FIXME: other mehod to calculate attention
     # at = torch.sum(t_feature, dim=1)
     at = at.view(bn, -1)
-    
+
     _, index = torch.sort(at, dim=1, descending=True)
     index, _ = torch.sort(index[:,:reduced_size], dim=1)
 
     t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
     s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
 
-    loss = loss_fn(s_feature, t_feature)
+    KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
+                                     F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # loss = loss_fn(s_feature, t_feature)
+    loss = torch.mul(KD_loss, 9)
     loss *= balance_weight
 
     return loss
@@ -328,6 +331,9 @@ def training(
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
+        if acc_validation < 1. :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
         if save:
             # torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
             torch.save(net.state_dict(),
@@ -652,6 +658,11 @@ def training_Gram_KD(
 
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
+    max_accuracy = 0.
+
+    kdloss = AverageMeter()
+    gtloss = AverageMeter()
+    convloss = AverageMeter()
 
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -720,7 +731,7 @@ def training_Gram_KD(
                     else:
                         loss.append(calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss, at_ratio))
                 """
-                
+
                 # feature regression method
                 if 1 in gram_features:
                     loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
@@ -740,7 +751,7 @@ def training_Gram_KD(
                 # print loss.data.cpu()
 
                 if loss == float('inf') or loss != loss:
-                    print('Loss is infinity, stop!')
+                    logger.error('Loss is infinity, stop!')
                     return
 
                 loss.backward()
@@ -805,7 +816,7 @@ def training_Gram_KD(
             GRAM_loss = .0
 
             # distill Gram matrix with attention
-            """ 
+            """
             if hint == False:
                 if 1 in gram_features:
                     if at_enabled:
@@ -846,34 +857,38 @@ def training_Gram_KD(
                 GRAM_loss /= len(gram_features)
             """
 
+
             # feature regression with attention
             if hint == False:
-                if 1 in gram_features:
+                if str(1) in gram_features:
                     # GRAM_loss += mse_loss(s_conv1, t_conv1)
                     GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv1)])
                     # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio)
-                if 2 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv2, t_conv2) 
+                if str(2) in gram_features:
+                    # GRAM_loss += mse_loss(s_conv2, t_conv2)
                     GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv2)])
                     # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio)
-                if 3 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv3, t_conv3) 
+                if str(3) in gram_features:
+                    # GRAM_loss += mse_loss(s_conv3, t_conv3)
                     GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv3)])
                     # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio)
-                if 4 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv4, t_conv4) 
+                if str(4) in gram_features:
+                    # GRAM_loss += mse_loss(s_conv4, t_conv4)
                     GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
                     # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
-                if 5 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv5, t_conv5) 
+                if str(5) in gram_features:
+                    # GRAM_loss += mse_loss(s_conv5, t_conv5)
                     GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
                     # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
                 # GRAM_loss *= style_weight
 
             loss = KD_loss + GT_loss + GRAM_loss
+            kdloss.update(KD_loss.item(), x_low.size(0))
+            gtloss.update(GT_loss.item(), x_low.size(0))
+            convloss.update(GRAM_loss.item(), x_low.size(0))
 
             if loss == float('inf') or loss != loss:
-                print('Loss is infinity, stop!')
+                logger.error('Loss is infinity, stop!')
                 return
 
             # if hint == False:
@@ -886,8 +901,8 @@ def training_Gram_KD(
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
-            print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.info('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
             continue
         # Test
         hit_training = 0
@@ -937,16 +952,17 @@ def training_Gram_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
-        print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        logger.info('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.info('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
+
+        if max_accuracy < acc_validation: max_accuracy = acc_validation
 
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
