@@ -176,26 +176,36 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
 
+    at = torch.sum(t_feature, dim=1)
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
 
     # FIXME: other mehod to calculate attention
     # at = torch.sum(t_feature, dim=1)
-    at = at.view(bn, -1)
+    # at = at.view(bn, -1)
+    at = torch.div(at.view(bn, -1), torch.sum(at, dim =(1,2)).view(bn, 1))
+    at = torch.mul(at, h * w)
 
-    _, index = torch.sort(at, dim=1, descending=True)
-    index, _ = torch.sort(index[:,:reduced_size], dim=1)
+    # _, index = torch.sort(at, dim=1, descending=True)
+    # index, _ = torch.sort(index[:,:reduced_size], dim=1)
 
-    t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
-    s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
+    # t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
+    # s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
 
-    KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
-                                     F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
+                                     # F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # loss = torch.mul(KD_loss, 9)
     # loss = loss_fn(s_feature, t_feature)
-    loss = torch.mul(KD_loss, 9)
-    loss *= balance_weight
 
-    return loss
+    diff = torch.sub(t_feature, s_feature)
+    diff = torch.mul(diff, diff)
+    diff = torch.mul(diff, at.view(bn,1,-1))
+    diff = torch.mean(diff)
+
+    # loss *= balance_weight
+    diff *= balance_weight
+
+    return diff
 
 
 def CAM(feature_conv, weight_softmax, class_idx):
@@ -214,8 +224,8 @@ def save_grad_at(module, grad_in, grad_out):
     global glb_grad_at
     # print('module hook')
 
-    # TODO: absolute value? calmp(relu)?
-    grad_at = torch.sum(grad_out[0].detach(), dim=1)
+    # TODO: absolute value? clamp(relu)?
+    grad_at = torch.sum(torch.abs(grad_out[0].detach()), dim=1)
     # grad_at = torch.camp(grad_at, min=0.0)
 
     # not grad_at[0] because batch_size can be more than 1
@@ -358,9 +368,7 @@ def training_KD(
     result_path,
     logger,
     vgg_gap,
-    save,
-    mse_conv,
-    mse_weight
+    save
     ):
     lossfunction = nn.CrossEntropyLoss()
     writer = SummaryWriter()
@@ -376,7 +384,6 @@ def training_KD(
     convloss = AverageMeter()
     prev = []
     bhlosses = []
-    logger.debug('\nUsing mseloss with convnets {} with mse weight value {}'.format(mse_conv, mse_weight))
 
     """
     # get the softmax(?) weight
@@ -436,10 +443,6 @@ def training_KD(
             # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
 
-            if mse_conv is not None:
-                for i in mse_conv.split():
-                    MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
-
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                      F.softmax(teacher / temperature, dim=1))
@@ -450,12 +453,8 @@ def training_KD(
 
 
             # loss = KD_loss + GT_loss - BH_loss
-            if mse_conv is not None:
-                loss = KD_loss + GT_loss + MSE_loss
-                convloss.update(MSE_loss.item(), x_low.size(0))
-            else:
-                loss = KD_loss + GT_loss
-                convloss.update(0)
+            loss = KD_loss + GT_loss
+            convloss.update(0)
             if isNaN(loss.item()) is True:
                 logger.error("This combination failed due to the NaN|inf loss value")
                 exit(1)
@@ -961,6 +960,9 @@ def training_Gram_KD(
               .format(acc_validation*100, hit_validation, num_validation))
 
         if max_accuracy < acc_validation: max_accuracy = acc_validation
+        if acc_validation < 0.01 :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
 
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')

@@ -49,8 +49,7 @@ if __name__ == '__main__':
     - args.save = False
     - args.vgg_gap = False
     ...
-    - args.mse_conv = None
-    - args.mse_weight = 0
+    - args.message = 'no commits'
     '''
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
@@ -154,6 +153,8 @@ if __name__ == '__main__':
                 else:
                     logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
+
+                logger.debug(args.message)
                 for arg in vars(args):
                     logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
                 logger.debug(
@@ -184,16 +185,12 @@ if __name__ == '__main__':
                     args.hint,
                     args.at_enabled,
                     args.at_ratio,
-                    args.save
+                    args.save,
                 )
             # else for gram_enabled
             else:
                 print('\nTraining starts')
-                if args.mse_conv is not None:
-                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}'
-                                   .format(args.dataset, str(args.low_ratio), args.mse_conv.replace(' ',''), str(args.mse_weight)))
-                else:
-                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
+                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
                 for arg in vars(args):
                     logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
@@ -217,9 +214,7 @@ if __name__ == '__main__':
                     args.result,
                     logger,
                     args.vgg_gap,
-                    args.save,
-                    args.mse_conv,
-                    args.mse_weight
+                    args.save
                )
     else :
         if args.low_ratio == 0:
