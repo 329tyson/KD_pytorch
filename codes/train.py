@@ -1043,10 +1043,13 @@ def training_attention_SR(
             one_hot_y = torch.zeros(output.shape).float().cuda()
             for i in range(output.shape[0]):
                 one_hot_y[i][y[i]] = 1.0
+            net.zero_grad()
+            output.backward(gradient = one_hot_y, retain_graph = True)
 
             GT_loss = ce_loss(output, y)
 
             # GT_loss.backward(gradient=one_hot_y, retain_graph = True)
+            net.zero_grad()
             GT_loss.backward(retain_graph = True)
 
             SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
@@ -1075,7 +1078,7 @@ def training_attention_SR(
         eval_training_bar = tqdm(eval_trainset_generator)
         eval_validation_bar = tqdm(eval_validationset_generator)
         for i,(x_low, y) in enumerate(eval_training_bar):
-            eval_training_bar.set_description('TESTING TRAINING SET, EPOCH[{}/{}]'.format(i, str(num_training)))
+            eval_training_bar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_training)))
             # To CUDA tensors
             x_low = torch.squeeze(x_low)
             x_low = x_low.cuda().float()
@@ -1098,7 +1101,7 @@ def training_attention_SR(
 
 
         for i,(x_low, y) in enumerate(eval_validation_bar):
-            eval_validation_bar.set_description('TESTING TEST SET, EPOCH[{}/{}]'.format(i, str(num_validation)))
+            eval_validation_bar.set_description('TESTING TEST SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_validation)))
             # To CUDA tensors
             x_low = torch.squeeze(x_low)
             x_low = x_low.cuda().float()
