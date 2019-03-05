@@ -3,7 +3,9 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
+from tqdm import tqdm
 from tensorboardX import SummaryWriter
+from torch.autograd import Variable
 
 from collections import OrderedDict
 global glb_grad_at
@@ -173,16 +175,23 @@ def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, m
 def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
     bn, c, h, w = t_feature.shape
 
+    # print 'SR image shape : {}'.format(s_feature.shape)
+    # print 'HR image shape : {}'.format(t_feature.shape)
+    # print 'ATTENTION shape : {}'.format(at.shape)
+    # import ipdb; ipdb.set_trace()
+
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
 
-    at = torch.sum(t_feature, dim=1)
+    # at = torch.sum(t_feature, dim=1)
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
 
     # FIXME: other mehod to calculate attention
     # at = torch.sum(t_feature, dim=1)
     # at = at.view(bn, -1)
+
+    # Normalise to scale 1
     at = torch.div(at.view(bn, -1), torch.sum(at, dim =(1,2)).view(bn, 1))
     at = torch.mul(at, h * w)
 
@@ -201,10 +210,11 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     diff = torch.mul(diff, diff)
     diff = torch.mul(diff, at.view(bn,1,-1))
     diff = torch.mean(diff)
-
     # loss *= balance_weight
     diff *= balance_weight
 
+    if diff < 0 :
+        import ipdb; ipdb.set_trace()
     return diff
 
 
@@ -222,7 +232,7 @@ def CAM(feature_conv, weight_softmax, class_idx):
 
 def save_grad_at(module, grad_in, grad_out):
     global glb_grad_at
-    # print('module hook')
+    # print 'executing save_grad_at, grad_in shape : {}, grad_out shape : {}'.format(grad_in.shape, grad_out.shape)
 
     # TODO: absolute value? clamp(relu)?
     grad_at = torch.sum(torch.abs(grad_out[0].detach()), dim=1)
@@ -772,6 +782,7 @@ def training_Gram_KD(
         for x, x_low, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
+            x = Variable(x, requires_grad = True)
             x_low = x_low.cuda().float()
 
             y = y.cuda() - 1
@@ -953,6 +964,167 @@ def training_Gram_KD(
         acc_validation = float(hit_validation) / num_validation
         logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
                      .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+              .format(acc_training*100, hit_training, num_training))
+        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+              .format(acc_validation*100, hit_validation, num_validation))
+
+        if max_accuracy < acc_validation: max_accuracy = acc_validation
+        if acc_validation < 0.01 :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
+
+        if save:
+            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
+def training_attention_SR(
+    net,
+    optimizer,
+    temperature,
+    init_lr,
+    lr_decay,
+    epochs,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    low_ratio,
+    result_path,
+    logger,
+    attention_weight,
+    norm_type,
+    patch_num,
+    gram_features,
+    at_enabled,
+    at_ratio,
+    save
+    ):
+    global glb_grad_at
+    glb_grad_at = OrderedDict()
+
+    net.srLayer.register_backward_hook(save_grad_at)
+    ce_loss = nn.CrossEntropyLoss()
+    mse_loss = nn.MSELoss()
+    max_accuracy = 0.
+
+    gtloss = AverageMeter()
+    srloss = AverageMeter()
+
+    if low_ratio != 0:
+        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+    else:
+        print('are you serious ...?')
+
+
+    for epoch in range(epochs):
+        loss= 0.
+        # decay_lr(optimizer, epoch, init_lr, lr_decay)
+        net.train()
+        for x, x_low, y in training_generator:
+            # training_bar.set_description('TRAINING EPOCH[{}/{}]'.format(i, str(46)))
+            # To CUDA tensors
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+
+            y = y.cuda() - 1
+
+            # Calculate gradient && Backpropagate
+            optimizer.zero_grad()
+
+            # Network output
+            sr_image, output = net(x_low)
+            output, features = output
+
+            one_hot_y = torch.zeros(output.shape).float().cuda()
+            for i in range(output.shape[0]):
+                one_hot_y[i][y[i]] = 1.0
+
+            GT_loss = ce_loss(output, y)
+
+            # GT_loss.backward(gradient=one_hot_y, retain_graph = True)
+            GT_loss.backward(retain_graph = True)
+
+            SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
+
+            # SR_loss.backward(gradient=one_hot_y)
+            SR_loss.backward()
+
+            gtloss.update(GT_loss.item(), x_low.size(0))
+            srloss.update(SR_loss.item(), x_low.size(0))
+
+            if SR_loss == float('inf') or SR_loss != SR_loss:
+                logger.error('SR_loss value : {}'.format(SR_loss.item()))
+                logger.error('Loss is infinity, stop!')
+                exit(1)
+
+            optimizer.step()
+        net.eval()
+
+        if (epoch + 1) % 10 > 0 :
+            logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
+                     .format(epoch+1, gtloss.avg, srloss.avg))
+            continue
+        # Test
+        hit_training = 0
+        hit_validation = 0
+        eval_training_bar = tqdm(eval_trainset_generator)
+        eval_validation_bar = tqdm(eval_validationset_generator)
+        for i,(x_low, y) in enumerate(eval_training_bar):
+            eval_training_bar.set_description('TESTING TRAINING SET, EPOCH[{}/{}]'.format(i, str(num_training)))
+            # To CUDA tensors
+            x_low = torch.squeeze(x_low)
+            x_low = x_low.cuda().float()
+            y -= 1
+
+            # Network output
+            sr_image, output = net(x_low)
+            output, features = output
+
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_training += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_training += (prediction == y.numpy()).sum()
+
+
+        for i,(x_low, y) in enumerate(eval_validation_bar):
+            eval_validation_bar.set_description('TESTING TEST SET, EPOCH[{}/{}]'.format(i, str(num_validation)))
+            # To CUDA tensors
+            x_low = torch.squeeze(x_low)
+            x_low = x_low.cuda().float()
+            y -= 1
+
+            # Network output
+            sr_image, output = net(x_low)
+            output, features = output
+
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_validation += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_validation += (prediction == y.numpy()).sum()
+
+
+        # Trace
+        acc_training = float(hit_training) / num_training
+        acc_validation = float(hit_validation) / num_validation
+        logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
+                     .format(epoch+1, gtloss.avg, srloss.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))

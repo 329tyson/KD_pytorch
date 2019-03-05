@@ -5,6 +5,7 @@ from alexnet import RACNN
 from train import training
 from train import training_KD
 from train import training_Gram_KD
+from train import training_attention_SR
 from save_gradient import calculate_grad
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
@@ -48,8 +49,8 @@ if __name__ == '__main__':
     - args.hint = False
     - args.save = False
     - args.vgg_gap = False
-    ...
-    - args.message = 'no commits'
+    - args.sr_enabled = False
+    - args.message = 'no comments'
     '''
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
@@ -216,6 +217,75 @@ if __name__ == '__main__':
                     args.vgg_gap,
                     args.save
                )
+    elif args.sr_enabled is True:
+        if args.low_ratio == 0:
+            print('Invalid argument, choose low resolution (50 | 25)')
+        else:
+            print('\nTraining Attention SR model')
+            print('\t on ',args.dataset,' with hyper parameters above')
+            print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
+            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True)
+            net.cuda()
+            try:
+                train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
+                    args.dataset,
+                    args.batch,
+                    args.annotation_train,
+                    args.annotation_val,
+                    args.data,
+                    args.low_ratio,
+                    args.ten_batch_eval,
+                    args.verbose,
+                    args.sr_enabled)
+            except ValueError:
+                print('inapproriate dataset, please put cub or stanford')
+            print('\nTraining starts')
+            if args.gram_features is not None:
+                logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}_RATIO_{}'
+                                   .format(args.dataset, str(args.low_ratio), args.gram_features.replace(' ',''), str(args.style_weight), str(args.at_ratio)))
+            else:
+                logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}'
+                                   .format(args.dataset, str(args.low_ratio)))
+
+                logger.debug(args.message)
+                for arg in vars(args):
+                    logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+                    logger.debug(
+                        '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
+                                                                                                      str(args.low_ratio)))
+                    logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+                    optimizer = optim.SGD([{'params':net.srLayer.parameters(), 'lr': 0.1 * args.lr},
+                                           {'params':net.get_all_params_except_last_fc(), 'lr': 0.0},
+                       {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
+                        'weight_decay': 1.0 * 0.0005},
+                       {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
+                        'weight_decay': 0.0}],
+                       momentum=0.95, weight_decay=0.0005)
+                    training_attention_SR(
+                        net,
+                        optimizer,
+                        args.kd_temperature,
+                        args.lr,
+                        args.lr_decay,
+                        args.epochs,
+                        args.ten_batch_eval,
+                        train_loader,
+                        eval_train_loader,
+                        eval_validation_loader,
+                        num_training,
+                        num_validation,
+                        args.low_ratio,
+                        args.result,
+                        logger,
+                        args.style_weight,
+                        args.norm_type,
+                        args.patch_num,
+                        args.gram_features,
+                        args.at_enabled,
+                        args.at_ratio,
+                        args.save,
+                    )
+
     else :
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')

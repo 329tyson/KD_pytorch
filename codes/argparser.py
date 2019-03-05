@@ -160,11 +160,16 @@ def parse():
         action='store_true'
     )
     parser.add_argument(
+        '--sr_enabled',
+        action = 'store_true'
+    )
+    parser.add_argument(
         '--message',
         type=str,
         default = 'no settings specified',
         help = 'short description for this experiment'
     )
+    parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
