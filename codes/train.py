@@ -981,6 +981,7 @@ def training_Gram_KD(
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
 def training_attention_SR(
+    teacher_net,
     net,
     optimizer,
     temperature,
@@ -1014,6 +1015,7 @@ def training_attention_SR(
 
     gtloss = AverageMeter()
     srloss = AverageMeter()
+    kdloss = AverageMeter()
 
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -1037,6 +1039,7 @@ def training_attention_SR(
             optimizer.zero_grad()
 
             # Network output
+            teacher, t_features = teacher_net(x)
             sr_image, output = net(x_low)
             output, features = output
 
@@ -1047,18 +1050,24 @@ def training_attention_SR(
             output.backward(gradient = one_hot_y, retain_graph = True)
 
             GT_loss = ce_loss(output, y)
+            KD_loss = nn.KLDivLoss()(F.log_softmax(output / 3, dim=1),
+                                     F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
 
             # GT_loss.backward(gradient=one_hot_y, retain_graph = True)
             net.zero_grad()
-            GT_loss.backward(retain_graph = True)
+            # GT_loss.backward(retain_graph = True)
+            loss = GT_loss + KD_loss
+            loss.backward()
 
-            SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
+            # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
+            SR_loss = 0
 
             # SR_loss.backward(gradient=one_hot_y)
-            SR_loss.backward()
+            # SR_loss.backward()
 
             gtloss.update(GT_loss.item(), x_low.size(0))
-            srloss.update(SR_loss.item(), x_low.size(0))
+            srloss.update(0, x_low.size(0))
+            kdloss.update(KD_loss.item(), x_low.size(0))
 
             if SR_loss == float('inf') or SR_loss != SR_loss:
                 logger.error('SR_loss value : {}'.format(SR_loss.item()))
@@ -1069,8 +1078,8 @@ def training_attention_SR(
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
-            logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
-                     .format(epoch+1, gtloss.avg, srloss.avg))
+            logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}][KD_LOSS : {:.3f}]'
+                     .format(epoch+1, gtloss.avg, srloss.avg, kdloss.avg))
             continue
         # Test
         hit_training = 0

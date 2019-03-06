@@ -207,6 +207,7 @@ class RACNN(nn.Module):
         if sr_pretrained:
             sr_weights = torch.load(sr_weights_path)
             self.srLayer.load_state_dict(sr_weights)
+            print 'SR load successful'
 
         if alex_pretrained:
             alex_weights = torch.load(alex_weights_path)

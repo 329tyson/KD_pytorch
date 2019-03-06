@@ -64,6 +64,7 @@ if __name__ == '__main__':
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
+        args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
 
     if args.dataset.lower() == 'cub':
         args.classes = 200
@@ -224,8 +225,11 @@ if __name__ == '__main__':
             print('\nTraining Attention SR model')
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
+            teacher_net = AlexNet(0.5, args.classes, ['fc8'])
+            load_weight(teacher_net, args.pretrain_path)
             net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
             net.cuda()
+            teacher_net.cuda()
             try:
                 train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
                     args.dataset,
@@ -254,14 +258,16 @@ if __name__ == '__main__':
                         '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
                                                                                                       str(args.low_ratio)))
                     logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
-                    optimizer = optim.SGD([{'params':net.srLayer.parameters(), 'lr': 0.1 * args.lr},
-                                           {'params':net.get_all_params_except_last_fc(), 'lr': 0.0},
+                    optimizer = optim.SGD(
+                        [{'params':net.srLayer.parameters(), 'lr': 0.0},
+                       {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
                        {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
                         'weight_decay': 1.0 * 0.0005},
                        {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
                         'weight_decay': 0.0}],
                        momentum=0.95, weight_decay=0.0005)
                     training_attention_SR(
+                        teacher_net,
                         net,
                         optimizer,
                         args.kd_temperature,
