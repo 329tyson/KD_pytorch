@@ -224,7 +224,7 @@ if __name__ == '__main__':
             print('\nTraining Attention SR model')
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
-            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True)
+            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
             net.cuda()
             try:
                 train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(

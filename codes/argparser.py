@@ -169,6 +169,10 @@ def parse():
         default = 'no settings specified',
         help = 'short description for this experiment'
     )
+    parser.add_argument(
+        '--sr_pretrain_path',
+        type=str
+    )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)
