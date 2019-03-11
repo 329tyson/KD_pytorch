@@ -193,21 +193,16 @@ class AlexNet(nn.Module):
 
 class RACNN(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
-                 alex_weights_path=None, alex_pretrained=False, from_npy=False,
-                 sr_weights_path=None, sr_pretrained=False
-                 ):
+                 alex_weights_path=None, from_npy=False,
+                 sr_weights_path=None):
         super(RACNN, self).__init__()
 
         self.srLayer = SRLayer()
         self.classificationLayer = AlexNet(keep_prob, num_classes, skip_layer)
 
-        if sr_pretrained:
+        if sr_weights_path:
             sr_weights = torch.load(sr_weights_path)
             self.srLayer.load_state_dict(sr_weights)
-
-        if alex_pretrained:
-            alex_weights = torch.load(alex_weights_path)
-            self.classificationLayer.load_state_dict(alex_weights)
 
         if from_npy:
             pretrained = np.load(alex_weights_path, encoding='latin1').item()
@@ -224,11 +219,15 @@ class RACNN(nn.Module):
 
             self.classificationLayer.load_state_dict(converted, strict=True)
 
+        elif alex_weights_path:
+            alex_weights = torch.load(alex_weights_path)
+            self.classificationLayer.load_state_dict(alex_weights)
+
     def forward(self, x):
         sr_x = self.srLayer(x)
-        output = self.classificationLayer(sr_x)
+        output, _ = self.classificationLayer(sr_x)
 
-        return sr_x, output
+        return output, sr_x
 
     def get_all_params_except_last_fc(self):
         b = []
