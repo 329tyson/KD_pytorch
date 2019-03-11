@@ -132,7 +132,12 @@ def parse():
         default=1,
         type=int
     )
-    parser.add_argument('--gram_features', nargs='+', type=int)
+    # parser.add_argument('--gram_features', nargs='+', type=int)
+    parser.add_argument(
+        '--gram_features',
+        default = None,
+        help = 'convnets to be used in mse loss'
+    )
     parser.add_argument(
         '--hint',
         action='store_true'
@@ -153,6 +158,26 @@ def parse():
     parser.add_argument(
         '--at_enabled',
         action='store_true'
+    )
+    parser.add_argument(
+        '--c_at',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--s_at',
+        action='store_true'
+    )
+
+    parser.add_argument(
+        '--mse_conv',
+        default = None,
+        help = 'convnets to be used in mse loss'
+    )
+    parser.add_argument(
+        '--mse_weight',
+        type=float,
+        default = 0,
+        help = 'weight to be used in mse loss'
     )
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
