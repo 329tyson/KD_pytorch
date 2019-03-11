@@ -42,10 +42,11 @@ def get_aruments():
     parser.add_argument("--low_ratio", type=int, default=25)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("ten_batch_eval", action='store_true')
-    parser.add_argument("--lr", type=float)
+    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--verbose", action = 'store_true')
     parser.add_argument("--pretrain_path", type=str)
     parser.add_argument("--gpu", type=str, default = '0')
+    parser.add_argument("--feature", type=int, default=0)
 
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(verbose=True)
@@ -62,7 +63,13 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 def main():
     args = get_aruments()
-    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), 'SR_Pretrain')))
+
+    if args.feature :
+        name = 'conv' + str(args.feature)
+        model_name = 'SR_Pretrain_perceptual_' + str(args.feature) + '_lr' + str(args.lr) + '_' 
+
+    # writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), 'SR_Pretrain')))
+    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
@@ -100,6 +107,7 @@ def main():
     alex.cuda()
     alex.eval()
     model.train()
+
     for epoch in range(args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
@@ -124,7 +132,7 @@ def main():
             # ploss = nn.KLDivLoss()(F.log_softmax(s_output, dim=1),
                                      # F.softmax(t_output, dim=1))    # teacher's hook is called in every loss.backward()
             # ploss = mse_loss(s_output, t_output)
-            ploss = mse_loss(sr_features['conv5'], t_features['conv5'])
+            ploss = mse_loss(sr_features[name], t_features[name].detach())
 
             loss = ploss
             loss.backward()
@@ -134,6 +142,10 @@ def main():
                 sr.append(sr_image[0])
                 ldr.append(x_low[0])
                 hdr.append(x[0])
+
+            loss_value += loss.data.cpu()
+
+        loss_value /= len(train_loader)
 
         torch.stack(sr, dim=0)
         torch.stack(ldr, dim=0)
@@ -146,12 +158,14 @@ def main():
         writer.add_image('LDR', ldr, epoch + 1)
         writer.add_image('SR', sr, epoch + 1)
         writer.add_image('HDR', hdr, epoch + 1)
+        writer.add_scalar('Perceptual Loss', loss_value, epoch + 1)
 
         print ("===> Epoch[{}/{}]: MSELOSS: {:3} PERCEPTUALLOSS: {:3}".format(epoch, args.epochs, ploss.item(), ploss.item()))
 
         if epoch % 10 == 0 and epoch != 0:
             print ("Save model (epoch:", epoch, ")")
-            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_mse' +  str(epoch) + '.pth'))
+            # torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_mse' +  str(epoch) + '.pth'))
+            torch.save(model.state_dict(), osp.join('./models/', model_name +  str(epoch) + 'epoh.pth'))
 
 
 if __name__ == "__main__":
