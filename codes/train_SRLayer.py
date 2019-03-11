@@ -121,9 +121,10 @@ def main():
             s_output, sr_features = alex(sr_image)
 
             l2loss = mse_loss(sr_image, x)
-            ploss = nn.KLDivLoss()(F.log_softmax(s_output, dim=1),
-                                     F.softmax(t_output, dim=1))    # teacher's hook is called in every loss.backward()
-            # ploss = mse_loss(t_output, s_output)
+            # ploss = nn.KLDivLoss()(F.log_softmax(s_output, dim=1),
+                                     # F.softmax(t_output, dim=1))    # teacher's hook is called in every loss.backward()
+            # ploss = mse_loss(s_output, t_output)
+            ploss = mse_loss(sr_features['conv5'], t_features['conv5'])
 
             loss = ploss
             loss.backward()
@@ -150,7 +151,7 @@ def main():
 
         if epoch % 10 == 0 and epoch != 0:
             print ("Save model (epoch:", epoch, ")")
-            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_' +  str(epoch) + '.pth'))
+            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_mse' +  str(epoch) + '.pth'))
 
 
 if __name__ == "__main__":

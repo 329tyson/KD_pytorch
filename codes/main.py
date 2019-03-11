@@ -20,38 +20,36 @@ import torch
 
 
 if __name__ == '__main__':
-    '''
-    Parse argument from user input
-    args are set to default as followed
-    - args.root = CWD
-    - args.data = ./data
-    - args.annotation_train = ./annotations_train
-    - args.annotation_val = ./annotations_val
-    - args.result = ./results
-    - args.dataset = None
-    - args.classes = 0
-    - args.lr = 0.001
-    - args.batch = 111
-    - args.epochs = 200
-    - args.resume = False
-    - args.checkpoint = 10
-    - args.low_ratio = 0
-    - args.verbose
-    - args.kd_enabled = False
-    - args.kd_temperature = 3
-    - args.log_dir =./logs
-    - args.gpu = 0
-    - args.noise = False
-    - args.style_weight = 1
-    - args.gram_enabled = False
-    - args.path_norm = 0 # no normalization
-    - args.path_num = 1
-    - args.hint = False
-    - args.save = False
-    - args.vgg_gap = False
-    - args.sr_enabled = False
-    - args.message = 'no comments'
-    '''
+    # Parse argument from user input
+    # args are set to default as followed
+    # - args.root = CWD
+    # - args.data = ./data
+    # - args.annotation_train = ./annotations_train
+    # - args.annotation_val = ./annotations_val
+    # - args.result = ./results
+    # - args.dataset = None
+    # - args.classes = 0
+    # - args.lr = 0.001
+    # - args.batch = 111
+    # - args.epochs = 200
+    # - args.resume = False
+    # - args.checkpoint = 10
+    # - args.low_ratio = 0
+    # - args.verbose
+    # - args.kd_enabled = False
+    # - args.kd_temperature = 3
+    # - args.log_dir =./logs
+    # - args.gpu = 0
+    # - args.noise = False
+    # - args.style_weight = 1
+    # - args.gram_enabled = False
+    # - args.path_norm = 0 # no normalization
+    # - args.path_num = 1
+    # - args.hint = False
+    # - args.save = False
+    # - args.vgg_gap = False
+    # - args.sr_enabled = False
+    # - args.message = 'no comments'
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
     args.annotation_val = os.path.join(args.root, args.annotation_val)
@@ -288,6 +286,7 @@ if __name__ == '__main__':
                     args.at_enabled,
                     args.at_ratio,
                     args.save,
+                    args.message
                 )
 
     else :

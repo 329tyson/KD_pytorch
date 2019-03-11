@@ -888,13 +888,14 @@ def training_attention_SR(
     gram_features,
     at_enabled,
     at_ratio,
-    save
+    save,
+    description
     ):
     global glb_grad_at
     glb_grad_at = OrderedDict()
 
     teacher_net.conv5.register_backward_hook(save_grad_at)
-    writer = SummaryWriter((datetime.datetime.now().strftime('%Y/%m/%d'), 'SR_CNN'))
+    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), description)))
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     max_accuracy = 0.
