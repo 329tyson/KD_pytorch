@@ -66,7 +66,7 @@ def main():
 
     if args.feature :
         name = 'conv' + str(args.feature)
-        model_name = 'SR_Pretrain_perceptual_' + str(args.feature) + '_lr' + str(args.lr) + '_' 
+        model_name = 'SR_Pretrain_perceptual_' + str(args.feature) + '_lr' + str(args.lr) 
 
     # writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), 'SR_Pretrain')))
     writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
@@ -165,7 +165,7 @@ def main():
         if epoch % 10 == 0 and epoch != 0:
             print ("Save model (epoch:", epoch, ")")
             # torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_mse' +  str(epoch) + '.pth'))
-            torch.save(model.state_dict(), osp.join('./models/', model_name +  str(epoch) + 'epoh.pth'))
+            torch.save(model.state_dict(), osp.join('./models/', model_name + '_' +  str(epoch) + 'epoh.pth'))
 
 
 if __name__ == "__main__":
