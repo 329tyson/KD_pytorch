@@ -3,6 +3,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
+import datetime
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.autograd import Variable
@@ -11,7 +12,6 @@ from collections import OrderedDict
 global glb_grad_at
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
     def __init__(self):
         self.reset()
 
@@ -125,12 +125,6 @@ def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight
 
 def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, mse_loss, ratio):
     bn, c, h, w = t_feature.shape
-    """
-    calculate l2 loss b.t.w teacher and student attended gram
-    :param s_feature, t_feature: shape=[bn, c, h, w]
-    :param at: shape = [bn, h*w]
-    :param norm_type (3: mat normlaized by h*w, 4: normalized by c*h*w)
-    """
 
     spatial_size = h * w
 
@@ -394,12 +388,6 @@ def training_KD(
     prev = []
     bhlosses = []
 
-    """
-    # get the softmax(?) weight
-    params = list(net.parameters())
-    weight_softmax = params[-2].data.detach()
-    # shape : [200, 1024]
-    """
 
     temperature2 = 5
 
@@ -427,19 +415,6 @@ def training_KD(
             student, s_feature = net(x_low)
 
             # Calculate Region KD between CAM region of teacher & student
-            """
-            kn, c, h, w = t_feature.shape
-
-            t_CAMs = CAM(t_feature, weight_softmax, y).view(bn, -1, h, w)
-            s_CAMs = CAM(s_feature, weight_softmax, y).view(bn, -1, h, w)
-            t_CAMs = F.upsample(t_CAMs, size=(25,25), mode='bilinear').view(bn, -1)
-            s_CAMs = F.upsample(s_CAMs, size=(25,25), mode='bilinear').view(bn, -1)
-
-            Region_KD_loss = nn.KLDivLoss()(F.log_softmax(s_CAMs / temperature2, dim=1),
-                                            F.softmax(t_CAMs / temperature2, dim=1))
-            # TODO: is this correct?
-            Region_KD_loss = torch.mul(Region_KD_loss, temperature2 * temperature2)
-            """
 
             t_convs = []
             s_convs = []
@@ -527,14 +502,6 @@ def training_KD(
 
             # Network output
             output, _ = net(x_low)
-            """
-            ## for RACNN
-            # _, output= net(x_low)
-            ## for alexnet
-            output = net(x_low)
-
-            output = output[0]
-            """
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -563,15 +530,6 @@ def training_KD(
 
             # Network output
             output, _ = net(x_low)
-            """
-
-            ## for RACNN
-            # sr_x, output= net(x_low)
-
-            ## for Alexnet
-            output= net(x_low)
-            output = output[0]
-            """
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -711,35 +669,6 @@ def training_Gram_KD(
 
                 loss = []
 
-                # distill Gram matrix with attention method
-                """
-                if 1 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv1, t_conv1, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 2 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv2, t_conv2, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 3 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv3, t_conv3, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 4 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv4, t_conv4, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 5 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv5, t_conv5, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                """
-
                 # feature regression method
                 if 1 in gram_features:
                     loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
@@ -823,49 +752,6 @@ def training_Gram_KD(
             GT_loss = ce_loss(student, y)
 
             GRAM_loss = .0
-
-            # distill Gram matrix with attention
-            """
-            if hint == False:
-                if 1 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv1, t_conv1, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 2 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv2, t_conv2, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 3 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv3, t_conv3, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 4 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv4, t_conv4, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 5 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv5, t_conv5, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-
-                GRAM_loss /= len(gram_features)
-            """
-
 
             # feature regression with attention
             if hint == False:
@@ -1008,7 +894,7 @@ def training_attention_SR(
     glb_grad_at = OrderedDict()
 
     teacher_net.conv5.register_backward_hook(save_grad_at)
-    writer = SummaryWriter()
+    writer = SummaryWriter((datetime.datetime.now().strftime('%Y/%m/%d'), 'SR_CNN'))
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     max_accuracy = 0.
@@ -1073,6 +959,9 @@ def training_attention_SR(
                 exit(1)
 
             optimizer.step()
+        writer.add_scalars('losses', {'CE': gtloss.avg,
+                                      'RECON': srloss.avg,
+                                      'KD': kdloss.avg}, epoch + 1)
         net.eval()
 
         if (epoch + 1) % 10 > 0 :

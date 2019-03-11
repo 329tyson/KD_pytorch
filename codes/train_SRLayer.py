@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 import os.path as osp
 import torchvision.utils as vutils
+import datetime
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from preprocess import *
 
@@ -60,7 +62,7 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 def main():
     args = get_aruments()
-    writer = SummaryWriter()
+    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), 'SR_Pretrain')))
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
@@ -114,16 +116,14 @@ def main():
             sr_image = model(x_low)
             optimizer.zero_grad()
 
-            _, t_features = alex(x)
-            tconv4 = t_features['conv4']
-            tconv5 = t_features['conv5']
+            t_output, t_features = alex(x)
 
-            _, sr_features = alex(sr_image)
-            sconv4 = sr_features['conv4']
-            sconv5 = sr_features['conv5']
+            s_output, sr_features = alex(sr_image)
 
             l2loss = mse_loss(sr_image, x)
-            ploss = mse_loss(sconv4, tconv4) + mse_loss(sconv5, tconv5)
+            ploss = nn.KLDivLoss()(F.log_softmax(s_output, dim=1),
+                                     F.softmax(t_output, dim=1))    # teacher's hook is called in every loss.backward()
+            # ploss = mse_loss(t_output, s_output)
 
             loss = ploss
             loss.backward()
@@ -150,7 +150,7 @@ def main():
 
         if epoch % 10 == 0 and epoch != 0:
             print ("Save model (epoch:", epoch, ")")
-            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'conv45_' +  str(epoch) + '.pth'))
+            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_' +  str(epoch) + '.pth'))
 
 
 if __name__ == "__main__":
