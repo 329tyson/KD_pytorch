@@ -761,7 +761,8 @@ def training_Gram_KD(
 
 
     ce_loss = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss()
+    # mse_loss = nn.MSELoss()
+    mse_loss = nn.MSELoss(reduce=False)
     max_accuracy = 0.
 
     kdloss = AverageMeter()
@@ -990,26 +991,26 @@ def training_Gram_KD(
                     c_at = glb_c_grad_at[id(teacher_net.pool1)]
                     s_at = calculate_s_at(t_conv1.detach(), s_conv1.detach(), glb_s_grad_at[id(teacher_net.pool1)])
                     GRAM_loss += Feature_cs_at_loss(s_conv1, t_conv1, mse_loss, c_at, s_at, c, s)
-                if 2 in gram_features:
+                if str(2) in gram_features:
                     # GRAM_loss += mse_loss(s_conv2, t_conv2)
                     c_at = glb_c_grad_at[id(teacher_net.pool2)]
                     s_at = calculate_s_at(t_conv2.detach(), s_conv2.detach(), glb_s_grad_at[id(teacher_net.pool2)])
                     GRAM_loss += Feature_cs_at_loss(s_conv2, t_conv2, mse_loss, c_at, s_at, c, s)
-                if 3 in gram_features:
+                if str(3) in gram_features:
                     # GRAM_loss += mse_loss(s_conv3, t_conv3)
                     c_at = glb_c_grad_at[id(teacher_net.relu3)]
                     s_at = calculate_s_at(t_conv3.detach(), s_conv3.detach(), glb_s_grad_at[id(teacher_net.relu3)])
                     GRAM_loss += Feature_cs_at_loss(s_conv3, t_conv3, mse_loss, c_at, s_at, c, s)
-                if 4 in gram_features:
+                if str(4) in gram_features:
                     # GRAM_loss += mse_loss(s_conv4, t_conv4)
                     c_at = glb_c_grad_at[id(teacher_net.relu4)]
                     s_at = calculate_s_at(t_conv4.detach(), s_conv4.detach(), glb_s_grad_at[id(teacher_net.relu4)])
                     GRAM_loss += Feature_cs_at_loss(s_conv4, t_conv4, mse_loss, c_at, s_at, c, s)
-                if 5 in gram_features:
+                if str(5) in gram_features:
                     # GRAM_loss += mse_loss(s_conv5, t_conv5)
                     c_at = glb_c_grad_at[id(teacher_net.pool5)]
                     s_at = calculate_s_at(t_conv5.detach(), s_conv5.detach(), glb_s_grad_at[id(teacher_net.pool5)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, style_weight, mse_loss, c_at, s_at, c, s)
+                    GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, mse_loss, c_at, s_at, c, s)
 
                 GRAM_loss *= style_weight
 
