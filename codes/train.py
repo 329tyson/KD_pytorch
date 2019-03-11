@@ -5,8 +5,11 @@ import torch.nn.functional as F
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
+import cv2
+
 from collections import OrderedDict
-global glb_grad_at
+global glb_s_grad_at
+global glb_c_grad_at
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -14,7 +17,6 @@ class AverageMeter(object):
         self.reset()
 
     def reset(self):
-        self.val = 0
         self.avg = 0
         self.sum = 0
         self.count = 0
@@ -116,6 +118,35 @@ def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight
     return loss
 
 
+def calculate_s_at(t_feature, s_feature, grad_at):
+    bn, _, h, w = t_feature.shape
+    t_at = torch.mean(torch.abs(t_feature), dim=1).view(bn, -1)
+    # t_at = torch.sqrt(t_at)
+    # t_at = t_at / torch.max(t_at, dim=1)[0].unsqueeze(1)
+    print 'teacher at:', torch.min(t_at).data.cpu(), torch.mean(t_at).data.cpu(), torch.max(t_at).data.cpu()
+
+    s_at = torch.mean(torch.abs(s_feature.detach()), dim=1).view(bn, -1)
+    # s_at = torch.sqrt(s_at)
+    # s_at = s_at / torch.max(s_at, dim=1)[0].unsqueeze(1)
+    print 'student at:', torch.min(s_at).data.cpu(), torch.mean(s_at).data.cpu(), torch.max(s_at).data.cpu()
+
+    r_at = torch.clamp(t_at - s_at, min=0.0).view(bn, h, w)
+    r_at = torch.sqrt(r_at)
+    at = r_at
+    # print "r_at: ", torch.min(at).data.cpu(), torch.max(at).data.cpu(), torch.mean(at).data.cpu()
+    
+    # at = grad_at * t_at.view(bn, h, w) # torch.sqrt(grad_at * at.view(bn, h, w))
+    # print 'at:', torch.min(at).data.cpu(), torch.mean(at).data.cpu(), torch.max(at).data.cpu()
+    # at = F.adaptive_avg_pool2d(at.view(bn, 1, h, w), 5)
+    # at = F.adaptive_avg_pool2d(at, h).view(bn, h, w)
+    # print 'at:', torch.min(at).data.cpu(), torch.mean(at).data.cpu(), torch.max(at).data.cpu()
+    
+    # at = (at * t_at).view(bn, h, w)
+    # at = torch.sqrt(at)
+
+    return at
+
+
 def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, mse_loss, ratio):
     bn, c, h, w = t_feature.shape
     """
@@ -190,6 +221,49 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     return loss
 
 
+def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, c, s):
+    bn, c, h, w = s_feature.shape
+
+    if s:
+        s_at = (F.normalize(s_at.view(bn,-1), p=1, dim=1)).view(bn, h, w)
+        print 's_at after norm : ', torch.min(s_at).data.cpu(), torch.mean(s_at.view(bn, -1)).data.cpu(), torch.max(s_at).data.cpu()
+    if c:
+        c_at = F.normalize(c_at, p=1, dim=1)
+        print 'c_at after norm : ', torch.min(c_at).data.cpu(), torch.mean(c_at.view(bn, -1)).data.cpu(), torch.max(c_at).data.cpu()
+
+    loss = loss_fn(s_feature, t_feature)
+    loss = loss.view(bn, c, -1)
+
+    if c:
+        c_at = c_at.unsqueeze(2) # c_at = [bn, c, 1]
+        loss = c_at * loss
+    loss = torch.mean(loss, dim=1)
+    loss = loss.view(bn, h, w)
+    
+    if s:
+        loss = s_at * loss
+    loss = torch.mean(loss)
+
+    return loss
+
+
+def channelAttendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
+    bn, c, h, w = t_feature.shape
+
+    reduced_channel = int(c / ratio)
+
+    _, index = torch.sort(at, dim=1, descending=True)
+    index, _ = torch.sort(index[:, :reduced_channel], dim=1)
+
+    t_feature = torch.cat([torch.index_select(a, 0, i).unsqueeze(0) for a, i in zip(t_feature, index)])
+    s_feature = torch.cat([torch.index_select(a, 0, i).unsqueeze(0) for a, i in zip(s_feature, index)])
+
+    loss = loss_fn(s_feature, t_feature)
+    loss *= balance_weight
+
+    return loss
+
+
 def CAM(feature_conv, weight_softmax, class_idx):
     # generate the class activation maps
     bz, nc, h, w = feature_conv.shape
@@ -203,15 +277,40 @@ def CAM(feature_conv, weight_softmax, class_idx):
 
 
 def save_grad_at(module, grad_in, grad_out):
-    global glb_grad_at
+    global glb_s_grad_at
+    global glb_c_grad_at
     # print('module hook')
+    bn, c, h, w = grad_out[0].shape
 
-    # TODO: absolute value? calmp(relu)?
-    grad_at = torch.sum(grad_out[0].detach(), dim=1)
-    # grad_at = torch.camp(grad_at, min=0.0)
+    # Spatial Attention
+    # grad_at = torch.sum(grad_out[0].detach(), dim=1)
+    grad_at = torch.sum(torch.abs(grad_out[0].detach()), dim=1)
+    # grad_at = torch.sum(torch.clamp(grad_out[0].detach(), min=0.0), dim=1)
+    # grad_at = torch.clamp(torch.sum(grad_out[0].detach(), dim=1),min=0.0)
 
-    # not grad_at[0] because batch_size can be more than 1
-    glb_grad_at[id(module)] = grad_at
+    glb_s_grad_at[id(module)] = grad_at
+
+    # Channel Attention
+    # grad_at = torch.mean(torch.abs(grad_out[0].detach()).view(bn, c, -1), dim=2)
+    grad_at = torch.abs(torch.mean(grad_out[0].detach().view(bn, c, -1), dim=2))
+
+    glb_c_grad_at[id(module)] = grad_at
+
+
+def compute_gradCAM(feature, grad):
+    bn, c, h, w= feature.shape
+    # Assume : grad.shape = [bn,c]
+    weight = grad
+    weight = weight.unsqueeze(2)
+
+    gradCAM = (weight * feature.view(bn, c, -1)).sum(dim=1)
+    gradCAM = torch.clamp(gradCAM, min=0.0)
+
+    gradCAM = gradCAM(bn, -1)
+    gradCAM = gradCAM / torch.max(gradCAM, dim=1)[0].unsqueeze(1)
+    gradCAM = gradCAM(bn, h, w)
+
+    return gradCAM
 
 
 def training(
@@ -620,13 +719,19 @@ def training_Gram_KD(
     hint,
     at_enabled,
     at_ratio,
-    save
+    save,
+    c,
+    s
     ):
-    global glb_grad_at
-    glb_grad_at = OrderedDict()
+    global glb_s_grad_at
+    global glb_c_grad_at
+    glb_s_grad_at = OrderedDict()
+    glb_c_grad_at = OrderedDict()
+
 
     ce_loss = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss()
+    mse_loss = nn.MSELoss(reduce=False)
+    # mse_loss = nn.MSELoss()
 
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -724,11 +829,26 @@ def training_Gram_KD(
                     epoch, loss.data.cpu()))
 
     # To calculate and save gradient attetion, register backward_hook
+    """
     teacher_net.conv1.register_backward_hook(save_grad_at)
     teacher_net.conv2.register_backward_hook(save_grad_at)
     teacher_net.conv3.register_backward_hook(save_grad_at)
     teacher_net.conv4.register_backward_hook(save_grad_at)
     teacher_net.conv5.register_backward_hook(save_grad_at)
+    """
+    teacher_net.pool1.register_backward_hook(save_grad_at)
+    teacher_net.pool2.register_backward_hook(save_grad_at)
+    teacher_net.relu3.register_backward_hook(save_grad_at)
+    teacher_net.relu4.register_backward_hook(save_grad_at)
+    teacher_net.pool5.register_backward_hook(save_grad_at)
+
+    """
+    net.pool1.register_backward_hook(save_grad_at)
+    net.pool2.register_backward_hook(save_grad_at)
+    net.relu3.register_backward_hook(save_grad_at)
+    net.relu4.register_backward_hook(save_grad_at)
+    net.pool5.register_backward_hook(save_grad_at)
+    """
 
     for epoch in range(epochs):
         loss= 0.
@@ -756,11 +876,17 @@ def training_Gram_KD(
             t_conv4 = t_features['conv4'].detach()
             t_conv5 = t_features['conv5'].detach()
 
-            # Calculate gradient && Backpropagate
-            optimizer.zero_grad()
+            # # Calculate gradient && Backpropagate
+            # optimizer.zero_grad()
 
             # Network output
             student, s_features = net(x_low)
+
+            net.zero_grad()
+            student.backward(gradient=one_hot_y, retain_graph=True)
+
+            # Calculate gradient && Backpropagate
+            optimizer.zero_grad()
 
             s_conv1 = s_features['conv1']
             s_conv2 = s_features['conv2']
@@ -769,12 +895,12 @@ def training_Gram_KD(
             s_conv5 = s_features['conv5']
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
-                                  F.softmax(teacher / temperature, dim=1))    # teacher's hook is called in every loss.backward()
-                                  # F.softmax(teacher.detach() / temperature, dim=1))
+                                  # F.softmax(teacher / temperature, dim=1))    # teacher's hook is called in every loss.backward()
+                                  F.softmax(teacher.detach() / temperature, dim=1))
 
             KD_loss = torch.mul(KD_loss, temperature * temperature)
             # KD_loss = .0
-
+            
             GT_loss = ce_loss(student, y)
 
             GRAM_loss = .0
@@ -825,25 +951,31 @@ def training_Gram_KD(
             if hint == False:
                 if 1 in gram_features:
                     # GRAM_loss += mse_loss(s_conv1, t_conv1)
-                    GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv1)])
-                    # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio)
+                    c_at = glb_c_grad_at[id(teacher_net.pool1)]
+                    s_at = calculate_s_at(t_conv1.detach(), s_conv1.detach(), glb_s_grad_at[id(teacher_net.pool1)])
+                    GRAM_loss += Feature_cs_at_loss(s_conv1, t_conv1, mse_loss, c_at, s_at, c, s)
                 if 2 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv2, t_conv2) 
-                    GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv2)])
-                    # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio)
+                    # GRAM_loss += mse_loss(s_conv2, t_conv2)
+                    c_at = glb_c_grad_at[id(teacher_net.pool2)]
+                    s_at = calculate_s_at(t_conv2.detach(), s_conv2.detach(), glb_s_grad_at[id(teacher_net.pool2)])
+                    GRAM_loss += Feature_cs_at_loss(s_conv2, t_conv2, mse_loss, c_at, s_at, c, s)
                 if 3 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv3, t_conv3) 
-                    GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv3)])
-                    # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio)
+                    # GRAM_loss += mse_loss(s_conv3, t_conv3)
+                    c_at = glb_c_grad_at[id(teacher_net.relu3)]
+                    s_at = calculate_s_at(t_conv3.detach(), s_conv3.detach(), glb_s_grad_at[id(teacher_net.relu3)])
+                    GRAM_loss += Feature_cs_at_loss(s_conv3, t_conv3, mse_loss, c_at, s_at, c, s)
                 if 4 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv4, t_conv4) 
-                    GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
-                    # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
+                    # GRAM_loss += mse_loss(s_conv4, t_conv4)
+                    c_at = glb_c_grad_at[id(teacher_net.relu4)]
+                    s_at = calculate_s_at(t_conv4.detach(), s_conv4.detach(), glb_s_grad_at[id(teacher_net.relu4)])
+                    GRAM_loss += Feature_cs_at_loss(s_conv4, t_conv4, mse_loss, c_at, s_at, c, s)
                 if 5 in gram_features:
-                    # GRAM_loss += mse_loss(s_conv5, t_conv5) 
-                    GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
-                    # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
-                # GRAM_loss *= style_weight
+                    # GRAM_loss += mse_loss(s_conv5, t_conv5)
+                    c_at = glb_c_grad_at[id(teacher_net.pool5)]
+                    s_at = calculate_s_at(t_conv5.detach(), s_conv5.detach(), glb_s_grad_at[id(teacher_net.pool5)])
+                    GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, style_weight, mse_loss, c_at, s_at, c, s)
+
+                GRAM_loss *= style_weight
 
             loss = KD_loss + GT_loss + GRAM_loss
 

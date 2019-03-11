@@ -154,6 +154,15 @@ def parse():
         '--at_enabled',
         action='store_true'
     )
+    parser.add_argument(
+        '--c_at',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--s_at',
+        action='store_true'
+    )
+
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
     parser.set_defaults(gram_enbaled=False)

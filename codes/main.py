@@ -173,7 +173,9 @@ if __name__ == '__main__':
                     args.hint,
                     args.at_enabled,
                     args.at_ratio,
-                    args.save
+                    args.save,
+                    args.c_at,
+                    args.s_at
                 )
             # else for gram_enabled
             else:
