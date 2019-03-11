@@ -178,7 +178,6 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     # print 'SR image shape : {}'.format(s_feature.shape)
     # print 'HR image shape : {}'.format(t_feature.shape)
     # print 'ATTENTION shape : {}'.format(at.shape)
-    # import ipdb; ipdb.set_trace()
 
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
@@ -1008,7 +1007,8 @@ def training_attention_SR(
     global glb_grad_at
     glb_grad_at = OrderedDict()
 
-    net.srLayer.register_backward_hook(save_grad_at)
+    teacher_net.conv5.register_backward_hook(save_grad_at)
+    writer = SummaryWriter()
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     max_accuracy = 0.
@@ -1041,32 +1041,30 @@ def training_attention_SR(
             # Network output
             teacher, t_features = teacher_net(x)
             sr_image, output = net(x_low)
-            output, features = output
+            output, s_features = output
 
             one_hot_y = torch.zeros(output.shape).float().cuda()
             for i in range(output.shape[0]):
                 one_hot_y[i][y[i]] = 1.0
-            net.zero_grad()
-            output.backward(gradient = one_hot_y, retain_graph = True)
 
+            teacher.backward(gradient = one_hot_y, retain_graph = True)
+
+
+            # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
+            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'], 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
+            # SR_loss = 0
+
+            # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)
             KD_loss = nn.KLDivLoss()(F.log_softmax(output / 3, dim=1),
                                      F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
 
-            # GT_loss.backward(gradient=one_hot_y, retain_graph = True)
-            net.zero_grad()
-            # GT_loss.backward(retain_graph = True)
-            loss = GT_loss + KD_loss
+            loss = GT_loss + KD_loss + SR_loss
+            optimizer.zero_grad()
             loss.backward()
 
-            # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
-            SR_loss = 0
-
-            # SR_loss.backward(gradient=one_hot_y)
-            # SR_loss.backward()
-
             gtloss.update(GT_loss.item(), x_low.size(0))
-            srloss.update(0, x_low.size(0))
+            srloss.update(SR_loss, x_low.size(0))
             kdloss.update(KD_loss.item(), x_low.size(0))
 
             if SR_loss == float('inf') or SR_loss != SR_loss:
@@ -1086,6 +1084,13 @@ def training_attention_SR(
         hit_validation = 0
         eval_training_bar = tqdm(eval_trainset_generator)
         eval_validation_bar = tqdm(eval_validationset_generator)
+        count_success = 0
+        count_failure = 0
+        count_show = 3
+        success = []
+        failure = []
+        sr_success = []
+        sr_failure = []
         for i,(x_low, y) in enumerate(eval_training_bar):
             eval_training_bar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_training)))
             # To CUDA tensors
@@ -1126,11 +1131,33 @@ def training_attention_SR(
 
                 if np.argmax(prediction) == y:
                     hit_validation += 1
+                    if count_success > count_show :
+                        continue
+                    success.append(x_low[0])
+                    sr_success.append(sr_image[0])
+                    count_success += 1
+                elif count_failure < count_show + 1:
+                    count_failure += 1
+                    failure.append(x_low[0])
+                    sr_failure.append(sr_image[0])
             else:
                 _, prediction = torch.max(output, 1)
                 prediction = prediction.cpu().detach().numpy()
                 hit_validation += (prediction == y.numpy()).sum()
 
+        torch.stack(success, dim=0)
+        torch.stack(failure, dim=0)
+        torch.stack(sr_success, dim=0)
+        torch.stack(sr_failure, dim=0)
+        success = vutils.make_grid(success, normalize=True, scale_each=True)
+        failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+        sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
+        sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
+
+        writer.add_image('Success', success, epoch + 1)
+        writer.add_image('SR_Success', sr_success, epoch + 1)
+        writer.add_image('Failure', failure, epoch + 1)
+        writer.add_image('SR_Failure', sr_failure, epoch + 1)
 
         # Trace
         acc_training = float(hit_training) / num_training

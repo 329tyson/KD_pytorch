@@ -19,4 +19,4 @@ data/
 *.pyc
 *.sh
 *.md
-
+*.log

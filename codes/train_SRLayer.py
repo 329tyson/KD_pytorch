@@ -13,6 +13,22 @@ from tensorboardX import SummaryWriter
 from preprocess import *
 
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 def get_aruments():
     parser = argparse.ArgumentParser(description="Pytorch RACNN")
@@ -26,6 +42,8 @@ def get_aruments():
     parser.add_argument("ten_batch_eval", action='store_true')
     parser.add_argument("--lr", type=float)
     parser.add_argument("--verbose", action = 'store_true')
+    parser.add_argument("--pretrain_path", type=str)
+    parser.add_argument("--gpu", type=str, default = '0')
 
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(verbose=True)
@@ -43,6 +61,8 @@ def adjust_learning_rate(optimizer, epoch, args):
 def main():
     args = get_aruments()
     writer = SummaryWriter()
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
     print("===> Loading datasets")
     train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
@@ -73,10 +93,14 @@ def main():
          {'params': model.sconv3.bias, 'lr': 0.01 * args.lr}],
         momentum=0.9, weight_decay=0)
 
+    alex = alexnet.AlexNet(0.5, 200, ['fc8'])
+    load_weight(alex, args.pretrain_path)
+    alex.cuda()
+    alex.eval()
+    model.train()
     for epoch in range(args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
-        model.train()
 
         loss_value = 0
         show = 3
@@ -88,7 +112,22 @@ def main():
             x_low = x_low.cuda().float()
             x = x.cuda().float()
             sr_image = model(x_low)
-            loss = mse_loss(x, sr_image)
+            optimizer.zero_grad()
+
+            _, t_features = alex(x)
+            tconv4 = t_features['conv4']
+            tconv5 = t_features['conv5']
+
+            _, sr_features = alex(sr_image)
+            sconv4 = sr_features['conv4']
+            sconv5 = sr_features['conv5']
+
+            l2loss = mse_loss(sr_image, x)
+            ploss = mse_loss(sconv4, tconv4) + mse_loss(sconv5, tconv5)
+
+            loss = ploss
+            loss.backward()
+            optimizer.step()
             if count < show :
                 count += 1
                 sr.append(sr_image[0])
@@ -107,13 +146,11 @@ def main():
         writer.add_image('SR', sr, epoch + 1)
         writer.add_image('HDR', hdr, epoch + 1)
 
-        print "===> Epoch[{}/{}]: Loss: {:3}".format(epoch, args.epochs, loss.item())
+        print ("===> Epoch[{}/{}]: MSELOSS: {:3} PERCEPTUALLOSS: {:3}".format(epoch, args.epochs, ploss.item(), ploss.item()))
 
-        model.eval()
-
-        if args.save_model and epoch % 10 == 0 and epoch != 0:
-            print "Save model (epoch:", epoch, ")"
-            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + version + '_' +  str(epoch) + '.pth'))
+        if epoch % 10 == 0 and epoch != 0:
+            print ("Save model (epoch:", epoch, ")")
+            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'conv45_' +  str(epoch) + '.pth'))
 
 
 if __name__ == "__main__":
