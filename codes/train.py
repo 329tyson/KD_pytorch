@@ -26,6 +26,10 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+def isNaN(num):
+    if num == float("inf"):
+        return True
+    return num != num
 
 def bhatta_loss(output, target, prev=[], mode='numpy'):
     if mode == 'numpy':
@@ -35,7 +39,8 @@ def bhatta_loss(output, target, prev=[], mode='numpy'):
         result_abs = np.abs(result_mul)
         result_sqrt = np.sqrt(result_abs)
         result_sum = np.sum(result_sqrt, axis =(1, 2, 3))
-        result_log = np.log(result_sum)
+        epsilon  = 0.00001
+        result_log = np.log(result_sum + epsilon)
         out = -np.mean(result_log)
     else:
         out = -torch.log(torch.sum(torch.sqrt(torch.abs(torch.mul(output, target))), (1,2,3)))
@@ -198,24 +203,27 @@ def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, m
 
 def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
     bn, c, h, w = t_feature.shape
-    
+
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
-    
+
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
-    
+
     # FIXME: other mehod to calculate attention
     # at = torch.sum(t_feature, dim=1)
     at = at.view(bn, -1)
-    
+
     _, index = torch.sort(at, dim=1, descending=True)
     index, _ = torch.sort(index[:,:reduced_size], dim=1)
 
     t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
     s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
 
-    loss = loss_fn(s_feature, t_feature)
+    KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
+                                     F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # loss = loss_fn(s_feature, t_feature)
+    loss = torch.mul(KD_loss, 9)
     loss *= balance_weight
 
     return loss
@@ -422,6 +430,9 @@ def training(
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
+        if acc_validation < 1. :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
         if save:
             # torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
             torch.save(net.state_dict(),
@@ -446,10 +457,13 @@ def training_KD(
     result_path,
     logger,
     vgg_gap,
-    save
+    save,
+    mse_conv,
+    mse_weight
     ):
     lossfunction = nn.CrossEntropyLoss()
     writer = SummaryWriter()
+    max_accuracy = 0.
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
     else:
@@ -458,9 +472,10 @@ def training_KD(
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
-    conv1loss = AverageMeter()
+    convloss = AverageMeter()
     prev = []
     bhlosses = []
+    logger.debug('\nUsing mseloss with convnets {} with mse weight value {}'.format(mse_conv, mse_weight))
 
     """
     # get the softmax(?) weight
@@ -496,7 +511,7 @@ def training_KD(
 
             # Calculate Region KD between CAM region of teacher & student
             """
-            bn, c, h, w = t_feature.shape
+            kn, c, h, w = t_feature.shape
 
             t_CAMs = CAM(t_feature, weight_softmax, y).view(bn, -1, h, w)
             s_CAMs = CAM(s_feature, weight_softmax, y).view(bn, -1, h, w)
@@ -517,8 +532,12 @@ def training_KD(
             for k,v in s_feature.items():
                 s_convs.append(v)
 
-            BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
+            # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
+            MSE_loss = 0
 
+            if mse_conv is not None:
+                for i in mse_conv.split():
+                    MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
 
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
@@ -530,52 +549,62 @@ def training_KD(
 
 
             # loss = KD_loss + GT_loss - BH_loss
-            loss = KD_loss + GT_loss
+            if mse_conv is not None:
+                loss = KD_loss + GT_loss + MSE_loss
+                convloss.update(MSE_loss.item(), x_low.size(0))
+            else:
+                loss = KD_loss + GT_loss
+                convloss.update(0)
+            if isNaN(loss.item()) is True:
+                logger.error("This combination failed due to the NaN|inf loss value")
+                exit(1)
 
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
-            conv1loss.update(BH_loss.item(), x_low.size(0))
 
-            for i in range(len(t_convs)):
-                t_conv = t_convs[i].cpu().detach().numpy()
-                s_conv = s_convs[i].cpu().detach().numpy()
-                if len(prev) < i + 1:
-                    prev.append(np.zeros(t_conv.shape))
-                    bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
-                else:
-                    bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
-            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv1_loss : {:.3f}]\n'
+            # for i in range(len(t_convs)):
+                # t_conv = t_convs[i].cpu().detach().numpy()
+                # s_conv = s_convs[i].cpu().detach().numpy()
+                # if len(prev) < i + 1:
+                    # prev.append(np.zeros(t_conv.shape))
+                    # bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
+                # else:
+                    # bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
+
+            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
                          # '\t[CONV1 Distance : {}]'
                          # '\t[CONV2 Distance : {}]'
                          # '\t[CONV3 Distance : {}]'
                          # '\t[CONV4 Distance : {}]'
                          # '\t[CONV5 Distance : {}]'
-                         # .format(epoch+1,kdloss.avg, gtloss.avg, conv1loss.avg,
+                         # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
                                  # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-            logger.debug('\t[CONV1 Distance : {}]'
-                         '\t[CONV2 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
-                         '\t[CONV4 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
-                         .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+            # logger.debug('\t[CONV1 Distance : {}]'
+                         # '\t[CONV2 Distance : {}]'
+                         # '\t[CONV5 Distance : {}]'
+                         # '\t[CONV4 Distance : {}]'
+                         # '\t[CONV5 Distance : {}]'
+                         # .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
 
             loss.backward()
-            print(loss.grad)
             optimizer.step()
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv1_loss : {:.3f}]\n'
-                         '\t[CONV1 Distance : {}]'
-                         '\t[CONV2 Distance : {}]'
-                         '\t[CONV3 Distance : {}]'
-                         '\t[CONV4 Distance : {}]'
-                         '\t[CONV5 Distance : {}]'
-                         .format(epoch+1,kdloss.avg, gtloss.avg, conv1loss.avg,
-                                 bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_LOSS : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
+                         # '\t[CONV1 Distance : {:.2f}]'
+                         # '\t[CONV2 Distance : {:.2f}]'
+                         # '\t[CONV2 Distance : {:.2f}]'
+                         # '\t[CONV4 Distance : {:.2f}]'
+                         # '\t[CONV5 Distance : {:.2f}]\n'
+                         # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
+                                 # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
                                           'GT_loss':gtloss.avg,
+                                          'MSE_loss':convloss.avg,
                                           }, epoch + 1)
             continue
         # Test
@@ -675,24 +704,26 @@ def training_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
-                     '\t[CONV1 BHLOSS : {:.3f}]'
-                     '\t[CONV2 BHLOSS : {:.3f}]'
-                     '\t[CONV3 BHLOSS : {:.3f}]'
-                     '\t[CONV4 BHLOSS : {:.3f}]'
-                     '\t[CONV5 BHLOSS : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg,
-                             bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][BH_loss : {:.3f}]'
-                     # .format(epoch+1,kdloss.avg, gtloss.avg, bhloss.avg))
+        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
+                     # '\t[CONV1 BHLOSS : {:.3f}]'
+                     # '\t[CONV2 BHLOSS : {:.3f}]'
+                     # '\t[CONV3 BHLOSS : {:.3f}]'
+                     # '\t[CONV4 BHLOSS : {:.3f}]'
+                     # '\t[CONV5 BHLOSS : {:.3f}]'
+                     # .format(epoch+1,kdloss.avg, gtloss.avg,
+                             # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
+        if max_accuracy < acc_validation * 100 : max_accuracy = acc_validation
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
-    print('Finished Training')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
 
 def training_Gram_KD(
@@ -730,8 +761,12 @@ def training_Gram_KD(
 
 
     ce_loss = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss(reduce=False)
-    # mse_loss = nn.MSELoss()
+    mse_loss = nn.MSELoss()
+    max_accuracy = 0.
+
+    kdloss = AverageMeter()
+    gtloss = AverageMeter()
+    convloss = AverageMeter()
 
     if low_ratio != 0:
         modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
@@ -800,7 +835,7 @@ def training_Gram_KD(
                     else:
                         loss.append(calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss, at_ratio))
                 """
-                
+
                 # feature regression method
                 if 1 in gram_features:
                     loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
@@ -820,7 +855,7 @@ def training_Gram_KD(
                 # print loss.data.cpu()
 
                 if loss == float('inf') or loss != loss:
-                    print('Loss is infinity, stop!')
+                    logger.error('Loss is infinity, stop!')
                     return
 
                 loss.backward()
@@ -906,7 +941,7 @@ def training_Gram_KD(
             GRAM_loss = .0
 
             # distill Gram matrix with attention
-            """ 
+            """
             if hint == False:
                 if 1 in gram_features:
                     if at_enabled:
@@ -947,9 +982,10 @@ def training_Gram_KD(
                 GRAM_loss /= len(gram_features)
             """
 
+
             # feature regression with attention
             if hint == False:
-                if 1 in gram_features:
+                if str(1) in gram_features:
                     # GRAM_loss += mse_loss(s_conv1, t_conv1)
                     c_at = glb_c_grad_at[id(teacher_net.pool1)]
                     s_at = calculate_s_at(t_conv1.detach(), s_conv1.detach(), glb_s_grad_at[id(teacher_net.pool1)])
@@ -978,9 +1014,12 @@ def training_Gram_KD(
                 GRAM_loss *= style_weight
 
             loss = KD_loss + GT_loss + GRAM_loss
+            kdloss.update(KD_loss.item(), x_low.size(0))
+            gtloss.update(GT_loss.item(), x_low.size(0))
+            convloss.update(GRAM_loss.item(), x_low.size(0))
 
             if loss == float('inf') or loss != loss:
-                print('Loss is infinity, stop!')
+                logger.error('Loss is infinity, stop!')
                 return
 
             # if hint == False:
@@ -993,8 +1032,8 @@ def training_Gram_KD(
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
-            print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.info('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
             continue
         # Test
         hit_training = 0
@@ -1044,16 +1083,17 @@ def training_Gram_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        print('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
-        print('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        logger.info('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.info('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.info('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
+
+        if max_accuracy < acc_validation: max_accuracy = acc_validation
 
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
