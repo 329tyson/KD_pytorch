@@ -214,7 +214,7 @@ class RACNN(nn.Module):
                 pretrained = np.load(alex_weights_path, encoding='latin1').item()
                 converted = self.classificationLayer.state_dict()
                 for lname, val in pretrained.items():
-                    if 'conv' in lanme:
+                    if 'conv' in lname:
                         converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(3, 2, 0, 1))
                         converted[lname + ".bias"] = torch.from_numpy(val[1])
                     elif 'fc8' in lname:
