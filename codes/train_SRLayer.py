@@ -67,10 +67,10 @@ def main():
 
     if args.feature :
         name = 'conv' + str(args.feature)
-        model_name = 'SR_Pretrain_perceptual_' + str(args.feature) + '_lr' + str(args.lr) 
+        model_name = 'SR_Pretrain_perceptual:' + str(args.feature) + '_lr:' + str(args.lr) 
 
     # writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), 'SR_Pretrain')))
-    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
