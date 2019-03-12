@@ -47,6 +47,7 @@ def get_aruments():
     parser.add_argument("--pretrain_path", type=str)
     parser.add_argument("--gpu", type=str, default = '0')
     parser.add_argument("--feature", type=int, default=0)
+    parser.add_argument("--decay", type=int, default=20)
 
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(verbose=True)
@@ -57,7 +58,7 @@ def get_aruments():
 def adjust_learning_rate(optimizer, epoch, args):
     for param_group in optimizer.param_groups:
         lr = param_group['lr']
-        lr = lr * (0.5 ** (epoch // 20))
+        lr = lr * (0.5 ** (epoch // args.decay))
         param_group['lr'] = lr
 
 
