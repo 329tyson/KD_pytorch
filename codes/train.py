@@ -127,7 +127,7 @@ def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight
 
 def calculate_s_at(t_feature, s_feature, grad_at):
     bn, _, h, w = t_feature.shape
-    t_at = torch.mean(torch.abs(t_feature), dim=1).view(bn, -1)
+    t_at = torch.mean(torch.abs(t_feature), dim=1).view(bn, -1) # abs is meaningless, if relu is applied 
     # t_at = torch.sqrt(t_at)
     # t_at = t_at / torch.max(t_at, dim=1)[0].unsqueeze(1)
     print 'teacher at:', torch.min(t_at).data.cpu(), torch.mean(t_at).data.cpu(), torch.max(t_at).data.cpu()
