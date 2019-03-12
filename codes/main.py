@@ -5,6 +5,7 @@ from alexnet import RACNN
 from train import training
 from train import training_KD
 from train import training_Gram_KD
+from train import training_attention_SR
 from save_gradient import calculate_grad
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
@@ -19,39 +20,36 @@ import torch
 
 
 if __name__ == '__main__':
-    '''
-    Parse argument from user input
-    args are set to default as followed
-    - args.root = CWD
-    - args.data = ./data
-    - args.annotation_train = ./annotations_train
-    - args.annotation_val = ./annotations_val
-    - args.result = ./results
-    - args.dataset = None
-    - args.classes = 0
-    - args.lr = 0.001
-    - args.batch = 111
-    - args.epochs = 200
-    - args.resume = False
-    - args.checkpoint = 10
-    - args.low_ratio = 0
-    - args.verbose
-    - args.kd_enabled = False
-    - args.kd_temperature = 3
-    - args.log_dir =./logs
-    - args.gpu = 0
-    - args.noise = False
-    - args.style_weight = 1
-    - args.gram_enabled = False
-    - args.path_norm = 0 # no normalization
-    - args.path_num = 1
-    - args.hint = False
-    - args.save = False
-    - args.vgg_gap = False
-    ...
-    - args.mse_conv = None
-    - args.mse_weight = 0
-    '''
+    # Parse argument from user input
+    # args are set to default as followed
+    # - args.root = CWD
+    # - args.data = ./data
+    # - args.annotation_train = ./annotations_train
+    # - args.annotation_val = ./annotations_val
+    # - args.result = ./results
+    # - args.dataset = None
+    # - args.classes = 0
+    # - args.lr = 0.001
+    # - args.batch = 111
+    # - args.epochs = 200
+    # - args.resume = False
+    # - args.checkpoint = 10
+    # - args.low_ratio = 0
+    # - args.verbose
+    # - args.kd_enabled = False
+    # - args.kd_temperature = 3
+    # - args.log_dir =./logs
+    # - args.gpu = 0
+    # - args.noise = False
+    # - args.style_weight = 1
+    # - args.gram_enabled = False
+    # - args.path_norm = 0 # no normalization
+    # - args.path_num = 1
+    # - args.hint = False
+    # - args.save = False
+    # - args.vgg_gap = False
+    # - args.sr_enabled = False
+    # - args.message = 'no comments'
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
     args.annotation_val = os.path.join(args.root, args.annotation_val)
@@ -64,6 +62,7 @@ if __name__ == '__main__':
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
+        args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
 
     if args.dataset.lower() == 'cub':
         args.classes = 200
@@ -154,6 +153,8 @@ if __name__ == '__main__':
                 else:
                     logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
+
+                logger.debug(args.message)
                 for arg in vars(args):
                     logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
                 logger.debug(
@@ -191,11 +192,7 @@ if __name__ == '__main__':
             # else for gram_enabled
             else:
                 print('\nTraining starts')
-                if args.mse_conv is not None:
-                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}'
-                                   .format(args.dataset, str(args.low_ratio), args.mse_conv.replace(' ',''), str(args.mse_weight)))
-                else:
-                    logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
+                logger = getlogger(args.log_dir + '/KD_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
                 for arg in vars(args):
                     logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
@@ -219,10 +216,82 @@ if __name__ == '__main__':
                     args.result,
                     logger,
                     args.vgg_gap,
-                    args.save,
-                    args.mse_conv,
-                    args.mse_weight
+                    args.save
                )
+    elif args.sr_enabled is True:
+        if args.low_ratio == 0:
+            print('Invalid argument, choose low resolution (50 | 25)')
+        else:
+            print('\nTraining Attention SR model')
+            print('\t on ',args.dataset,' with hyper parameters above')
+            print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
+            teacher_net = AlexNet(0.5, args.classes, ['fc8'])
+            load_weight(teacher_net, args.pretrain_path)
+            # net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
+            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, sr_weights_path = args.sr_pretrain_path)
+            net.cuda()
+            teacher_net.cuda()
+            try:
+                train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
+                    args.dataset,
+                    args.batch,
+                    args.annotation_train,
+                    args.annotation_val,
+                    args.data,
+                    args.low_ratio,
+                    args.ten_batch_eval,
+                    args.verbose,
+                    args.sr_enabled)
+            except ValueError:
+                print('inapproriate dataset, please put cub or stanford')
+            print('\nTraining starts')
+            if args.gram_features is not None:
+                logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}_MSE_{}_WEIGHT_{}_RATIO_{}'
+                                   .format(args.dataset, str(args.low_ratio), args.gram_features.replace(' ',''), str(args.style_weight), str(args.at_ratio)))
+            else:
+                logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}'
+                                   .format(args.dataset, str(args.low_ratio)))
+
+                logger.debug(args.message)
+                logger.debug(
+                    '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
+                                                                                                  str(args.low_ratio)))
+                logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+                optimizer = optim.SGD(
+                    [{'params':net.srLayer.parameters(), 'lr': 0.0},
+                     {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
+                     {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
+                      'weight_decay': 1.0 * 0.0005},
+                     {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
+                      'weight_decay': 0.0}],
+                    momentum=0.95, weight_decay=0.0005)
+                training_attention_SR(
+                    teacher_net,
+                    net,
+                    optimizer,
+                    args.kd_temperature,
+                    args.lr,
+                    args.lr_decay,
+                    args.epochs,
+                    args.ten_batch_eval,
+                    train_loader,
+                    eval_train_loader,
+                    eval_validation_loader,
+                    num_training,
+                    num_validation,
+                    args.low_ratio,
+                    args.result,
+                    logger,
+                    args.style_weight,
+                    args.norm_type,
+                    args.patch_num,
+                    args.gram_features,
+                    args.at_enabled,
+                    args.at_ratio,
+                    args.save,
+                    args.message
+                )
+
     else :
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')

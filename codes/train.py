@@ -3,7 +3,10 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
+import datetime
+from tqdm import tqdm
 from tensorboardX import SummaryWriter
+from torch.autograd import Variable
 
 import cv2
 
@@ -12,7 +15,6 @@ global glb_s_grad_at
 global glb_c_grad_at
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
     def __init__(self):
         self.reset()
 
@@ -154,12 +156,6 @@ def calculate_s_at(t_feature, s_feature, grad_at):
 
 def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, mse_loss, ratio):
     bn, c, h, w = t_feature.shape
-    """
-    calculate l2 loss b.t.w teacher and student attended gram
-    :param s_feature, t_feature: shape=[bn, c, h, w]
-    :param at: shape = [bn, h*w]
-    :param norm_type (3: mat normlaized by h*w, 4: normalized by c*h*w)
-    """
 
     spatial_size = h * w
 
@@ -204,29 +200,46 @@ def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, m
 def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
     bn, c, h, w = t_feature.shape
 
+    # print 'SR image shape : {}'.format(s_feature.shape)
+    # print 'HR image shape : {}'.format(t_feature.shape)
+    # print 'ATTENTION shape : {}'.format(at.shape)
+
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
 
+    # at = torch.sum(t_feature, dim=1)
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
 
     # FIXME: other mehod to calculate attention
     # at = torch.sum(t_feature, dim=1)
-    at = at.view(bn, -1)
+    # at = at.view(bn, -1)
 
-    _, index = torch.sort(at, dim=1, descending=True)
-    index, _ = torch.sort(index[:,:reduced_size], dim=1)
+    # Normalise to scale 1
+    at = torch.div(at.view(bn, -1), torch.sum(at, dim =(1,2)).view(bn, 1))
+    at = torch.mul(at, h * w)
 
-    t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
-    s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
+    # _, index = torch.sort(at, dim=1, descending=True)
+    # index, _ = torch.sort(index[:,:reduced_size], dim=1)
 
-    KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
-                                     F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
+    # s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
+
+    # KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
+                                     # F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
+    # loss = torch.mul(KD_loss, 9)
     # loss = loss_fn(s_feature, t_feature)
-    loss = torch.mul(KD_loss, 9)
-    loss *= balance_weight
 
-    return loss
+    diff = torch.sub(t_feature, s_feature)
+    diff = torch.mul(diff, diff)
+    diff = torch.mul(diff, at.view(bn,1,-1))
+    diff = torch.mean(diff)
+    # loss *= balance_weight
+    diff *= balance_weight
+
+    if diff < 0 :
+        import ipdb; ipdb.set_trace()
+    return diff
 
 
 def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, c, s):
@@ -457,9 +470,7 @@ def training_KD(
     result_path,
     logger,
     vgg_gap,
-    save,
-    mse_conv,
-    mse_weight
+    save
     ):
     lossfunction = nn.CrossEntropyLoss()
     writer = SummaryWriter()
@@ -475,14 +486,7 @@ def training_KD(
     convloss = AverageMeter()
     prev = []
     bhlosses = []
-    logger.debug('\nUsing mseloss with convnets {} with mse weight value {}'.format(mse_conv, mse_weight))
 
-    """
-    # get the softmax(?) weight
-    params = list(net.parameters())
-    weight_softmax = params[-2].data.detach()
-    # shape : [200, 1024]
-    """
 
     temperature2 = 5
 
@@ -510,19 +514,6 @@ def training_KD(
             student, s_feature = net(x_low)
 
             # Calculate Region KD between CAM region of teacher & student
-            """
-            kn, c, h, w = t_feature.shape
-
-            t_CAMs = CAM(t_feature, weight_softmax, y).view(bn, -1, h, w)
-            s_CAMs = CAM(s_feature, weight_softmax, y).view(bn, -1, h, w)
-            t_CAMs = F.upsample(t_CAMs, size=(25,25), mode='bilinear').view(bn, -1)
-            s_CAMs = F.upsample(s_CAMs, size=(25,25), mode='bilinear').view(bn, -1)
-
-            Region_KD_loss = nn.KLDivLoss()(F.log_softmax(s_CAMs / temperature2, dim=1),
-                                            F.softmax(t_CAMs / temperature2, dim=1))
-            # TODO: is this correct?
-            Region_KD_loss = torch.mul(Region_KD_loss, temperature2 * temperature2)
-            """
 
             t_convs = []
             s_convs = []
@@ -535,10 +526,6 @@ def training_KD(
             # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
 
-            if mse_conv is not None:
-                for i in mse_conv.split():
-                    MSE_loss += mse_weight * nn.MSELoss()(s_convs[int(i)-1], t_convs[int(i)-1])
-
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                      F.softmax(teacher / temperature, dim=1))
@@ -549,12 +536,8 @@ def training_KD(
 
 
             # loss = KD_loss + GT_loss - BH_loss
-            if mse_conv is not None:
-                loss = KD_loss + GT_loss + MSE_loss
-                convloss.update(MSE_loss.item(), x_low.size(0))
-            else:
-                loss = KD_loss + GT_loss
-                convloss.update(0)
+            loss = KD_loss + GT_loss
+            convloss.update(0)
             if isNaN(loss.item()) is True:
                 logger.error("This combination failed due to the NaN|inf loss value")
                 exit(1)
@@ -618,14 +601,6 @@ def training_KD(
 
             # Network output
             output, _ = net(x_low)
-            """
-            ## for RACNN
-            # _, output= net(x_low)
-            ## for alexnet
-            output = net(x_low)
-
-            output = output[0]
-            """
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -654,15 +629,6 @@ def training_KD(
 
             # Network output
             output, _ = net(x_low)
-            """
-
-            ## for RACNN
-            # sr_x, output= net(x_low)
-
-            ## for Alexnet
-            output= net(x_low)
-            output = output[0]
-            """
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -808,35 +774,6 @@ def training_Gram_KD(
 
                 loss = []
 
-                # distill Gram matrix with attention method
-                """
-                if 1 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv1, t_conv1, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 2 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv2, t_conv2, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 3 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv3, t_conv3, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 4 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv4, t_conv4, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                if 5 in gram_features:
-                    if at_enabled:
-                        loss.append(calculate_attendedGram_loss(s_conv5, t_conv5, norm_type, style_weight, mse_loss, at_ratio))
-                    else:
-                        loss.append(calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num, style_weight, mse_loss, at_ratio))
-                """
-
                 # feature regression method
                 if 1 in gram_features:
                     loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
@@ -893,6 +830,7 @@ def training_Gram_KD(
         for x, x_low, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
+            x = Variable(x, requires_grad = True)
             x_low = x_low.cuda().float()
 
             y = y.cuda() - 1
@@ -940,49 +878,6 @@ def training_Gram_KD(
             GT_loss = ce_loss(student, y)
 
             GRAM_loss = .0
-
-            # distill Gram matrix with attention
-            """
-            if hint == False:
-                if 1 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv1, t_conv1, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv1, t_conv1, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 2 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv2, t_conv2, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv2, t_conv2, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 3 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv3, t_conv3, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv3, t_conv3, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 4 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv4, t_conv4, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv4, t_conv4, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-                if 5 in gram_features:
-                    if at_enabled:
-                        GRAM_loss += calculate_attendedGram_loss(s_conv5, t_conv5, norm_type,
-                                                                 style_weight, mse_loss, at_ratio)
-                    else:
-                        GRAM_loss += calculate_Gram_loss(s_conv5, t_conv5, norm_type, patch_num,
-                                                         style_weight, mse_loss, at_ratio)
-
-                GRAM_loss /= len(gram_features)
-            """
-
 
             # feature regression with attention
             if hint == False:
@@ -1093,6 +988,214 @@ def training_Gram_KD(
               .format(acc_validation*100, hit_validation, num_validation))
 
         if max_accuracy < acc_validation: max_accuracy = acc_validation
+        if acc_validation < 0.01 :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
+
+        if save:
+            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
+def training_attention_SR(
+    teacher_net,
+    net,
+    optimizer,
+    temperature,
+    init_lr,
+    lr_decay,
+    epochs,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    low_ratio,
+    result_path,
+    logger,
+    attention_weight,
+    norm_type,
+    patch_num,
+    gram_features,
+    at_enabled,
+    at_ratio,
+    save,
+    description
+    ):
+    global glb_grad_at
+    glb_grad_at = OrderedDict()
+
+    teacher_net.conv5.register_backward_hook(save_grad_at)
+    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), description)))
+    ce_loss = nn.CrossEntropyLoss()
+    mse_loss = nn.MSELoss()
+    max_accuracy = 0.
+
+    gtloss = AverageMeter()
+    srloss = AverageMeter()
+    kdloss = AverageMeter()
+
+    if low_ratio != 0:
+        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+    else:
+        print('are you serious ...?')
+
+
+    for epoch in range(epochs):
+        loss= 0.
+        # decay_lr(optimizer, epoch, init_lr, lr_decay)
+        net.train()
+        for x, x_low, y in training_generator:
+            # training_bar.set_description('TRAINING EPOCH[{}/{}]'.format(i, str(46)))
+            # To CUDA tensors
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+
+            y = y.cuda() - 1
+
+            # Calculate gradient && Backpropagate
+            optimizer.zero_grad()
+
+            # Network output
+            teacher, t_features = teacher_net(x)
+            sr_image, output = net(x_low)
+            output, s_features = output
+
+            one_hot_y = torch.zeros(output.shape).float().cuda()
+            for i in range(output.shape[0]):
+                one_hot_y[i][y[i]] = 1.0
+
+            teacher.backward(gradient = one_hot_y, retain_graph = True)
+
+
+            # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
+            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'], 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
+            # SR_loss = 0
+
+            # SR_loss.backward(gradient=one_hot_y)
+            GT_loss = ce_loss(output, y)
+            KD_loss = nn.KLDivLoss()(F.log_softmax(output / 3, dim=1),
+                                     F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
+
+            loss = GT_loss + KD_loss + SR_loss
+            optimizer.zero_grad()
+            loss.backward()
+
+            gtloss.update(GT_loss.item(), x_low.size(0))
+            srloss.update(SR_loss, x_low.size(0))
+            kdloss.update(KD_loss.item(), x_low.size(0))
+
+            if SR_loss == float('inf') or SR_loss != SR_loss:
+                logger.error('SR_loss value : {}'.format(SR_loss.item()))
+                logger.error('Loss is infinity, stop!')
+                exit(1)
+
+            optimizer.step()
+        writer.add_scalars('losses', {'CE': gtloss.avg,
+                                      'RECON': srloss.avg,
+                                      'KD': kdloss.avg}, epoch + 1)
+        net.eval()
+
+        if (epoch + 1) % 10 > 0 :
+            logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}][KD_LOSS : {:.3f}]'
+                     .format(epoch+1, gtloss.avg, srloss.avg, kdloss.avg))
+            continue
+        # Test
+        hit_training = 0
+        hit_validation = 0
+        eval_training_bar = tqdm(eval_trainset_generator)
+        eval_validation_bar = tqdm(eval_validationset_generator)
+        count_success = 0
+        count_failure = 0
+        count_show = 3
+        success = []
+        failure = []
+        sr_success = []
+        sr_failure = []
+        for i,(x_low, y) in enumerate(eval_training_bar):
+            eval_training_bar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_training)))
+            # To CUDA tensors
+            x_low = torch.squeeze(x_low)
+            x_low = x_low.cuda().float()
+            y -= 1
+
+            # Network output
+            sr_image, output = net(x_low)
+            output, features = output
+
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_training += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_training += (prediction == y.numpy()).sum()
+
+
+        for i,(x_low, y) in enumerate(eval_validation_bar):
+            eval_validation_bar.set_description('TESTING TEST SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_validation)))
+            # To CUDA tensors
+            x_low = torch.squeeze(x_low)
+            x_low = x_low.cuda().float()
+            y -= 1
+
+            # Network output
+            sr_image, output = net(x_low)
+            output, features = output
+
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_validation += 1
+                    if count_success > count_show :
+                        continue
+                    success.append(x_low[0])
+                    sr_success.append(sr_image[0])
+                    count_success += 1
+                elif count_failure < count_show + 1:
+                    count_failure += 1
+                    failure.append(x_low[0])
+                    sr_failure.append(sr_image[0])
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_validation += (prediction == y.numpy()).sum()
+
+        torch.stack(success, dim=0)
+        torch.stack(failure, dim=0)
+        torch.stack(sr_success, dim=0)
+        torch.stack(sr_failure, dim=0)
+        success = vutils.make_grid(success, normalize=True, scale_each=True)
+        failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+        sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
+        sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
+
+        writer.add_image('Success', success, epoch + 1)
+        writer.add_image('SR_Success', sr_success, epoch + 1)
+        writer.add_image('Failure', failure, epoch + 1)
+        writer.add_image('SR_Failure', sr_failure, epoch + 1)
+
+        # Trace
+        acc_training = float(hit_training) / num_training
+        acc_validation = float(hit_validation) / num_validation
+        logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
+                     .format(epoch+1, gtloss.avg, srloss.avg))
+        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+              .format(acc_training*100, hit_training, num_training))
+        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+              .format(acc_validation*100, hit_validation, num_validation))
+
+        if max_accuracy < acc_validation: max_accuracy = acc_validation
+        if acc_validation < 0.01 :
+            logger.error('This combination seems not working, stop training')
+            exit(1)
 
         if save:
             torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')

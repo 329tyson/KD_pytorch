@@ -196,35 +196,37 @@ class AlexNet(nn.Module):
 
 class RACNN(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
-                 alex_weights_path=None, from_npy=False,
-                 sr_weights_path=None):
+                alex_weights_path=None, sr_weights_path=None, from_npy=False):
         super(RACNN, self).__init__()
 
         self.srLayer = SRLayer()
         self.classificationLayer = AlexNet(keep_prob, num_classes, skip_layer)
 
+        # load 3 SRLayer
         if sr_weights_path:
             sr_weights = torch.load(sr_weights_path)
             self.srLayer.load_state_dict(sr_weights)
+            print 'SR load successful'
 
-        if from_npy:
-            pretrained = np.load(alex_weights_path, encoding='latin1').item()
-            converted = self.classificationLayer.state_dict()
-            for lname, val in pretrained.items():
-                if 'conv' in lname:
-                    converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(3, 2, 0, 1))
-                    converted[lname + ".bias"] = torch.from_numpy(val[1])
-                elif 'fc8' in lname:
-                    continue
-                elif 'fc' in lname:
-                    converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(1, 0))
-                    converted[lname + ".bias"] = torch.from_numpy(val[1])
+        # load alexnet model
+        if alex_weights_path:
+            if from_npy:
+                pretrained = np.load(alex_weights_path, encoding='latin1').item()
+                converted = self.classificationLayer.state_dict()
+                for lname, val in pretrained.items():
+                    if 'conv' in lanme:
+                        converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(3, 2, 0, 1))
+                        converted[lname + ".bias"] = torch.from_numpy(val[1])
+                    elif 'fc8' in lname:
+                        continue
+                    elif 'fc' in lname:
+                        converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(1, 0))
+                        converted[lname + ".bias"] = torch.from_numpy(val[1])
+                self.classificationLayer.load_state_dict(converted, strict=Ture)
 
-            self.classificationLayer.load_state_dict(converted, strict=True)
-
-        elif alex_weights_path:
-            alex_weights = torch.load(alex_weights_path)
-            self.classificationLayer.load_state_dict(alex_weights)
+            else:
+                alex_weights = torch.load(alex_weights_path)
+                self.classificationLayer.load_state_dict(alex_weights)
 
     def forward(self, x):
         sr_x = self.srLayer(x)

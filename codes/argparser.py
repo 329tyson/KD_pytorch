@@ -167,21 +167,30 @@ def parse():
         '--s_at',
         action='store_true'
     )
-
     parser.add_argument(
         '--mse_conv',
         default = None,
         help = 'convnets to be used in mse loss'
     )
     parser.add_argument(
-        '--mse_weight',
-        type=float,
-        default = 0,
-        help = 'weight to be used in mse loss'
+        '--sr_enabled',
+        action = 'store_true'
     )
+    parser.add_argument(
+        '--message',
+        type=str,
+        default = 'no settings specified',
+        help = 'short description for this experiment'
+    )
+    parser.add_argument(
+        '--sr_pretrain_path',
+        type=str
+    )
+    parser.set_defaults(sr_enabled=False)
+    parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(kd_enabled=False)
-    parser.set_defaults(gram_enbaled=False)
+    parser.set_defaults(gram_enabled=False)
     parser.set_defaults(hint=False)
     parser.set_defaults(verbose=False)
     parser.set_defaults(save=False)
