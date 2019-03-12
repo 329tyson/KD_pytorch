@@ -225,7 +225,8 @@ if __name__ == '__main__':
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
             teacher_net = AlexNet(0.5, args.classes, ['fc8'])
             load_weight(teacher_net, args.pretrain_path)
-            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
+            # net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
+            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, sr_weights_path = args.sr_pretrain_path)
             net.cuda()
             teacher_net.cuda()
             try:
