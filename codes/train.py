@@ -14,6 +14,7 @@ from collections import OrderedDict
 global glb_s_grad_at
 global glb_c_grad_at
 
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
@@ -28,10 +29,13 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
 def isNaN(num):
     if num == float("inf"):
         return True
     return num != num
+
 
 def bhatta_loss(output, target, prev=[], mode='numpy'):
     if mode == 'numpy':
@@ -49,11 +53,13 @@ def bhatta_loss(output, target, prev=[], mode='numpy'):
         out = torch.mean(out)
     return out
 
+
 def decay_lr(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     optimizer.param_groups[7]['lr'] = lr * 10
+
 
 def decay_lr_vgg(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
@@ -353,18 +359,28 @@ def training(
     save
     ):
     lossfunction = nn.CrossEntropyLoss()
+
     if low_ratio != 0:
-        modelName = '/teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+        model_name = 'Teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio)) + '_lr:' \
+                     + str(init_lr) + '_decay:' + str(lr_decay)
     else:
-        modelName = '/teacher_HIGH_'
-    print('modelName = ', result_path + modelName)
+        model_name = 'Teacher_HIGH' + '_lr:' + str(init_lr) + '_decay:' + str(lr_decay)
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
+    print('modelName = ', result_path + model_name)
+
     for epoch in range(epochs):
-        loss= 0.
+        loss = 0.
+        loss_value = 0
+
         if not vgg_gap:
             decay_lr(optimizer, epoch, init_lr, lr_decay)
         else:
             decay_lr_vgg(optimizer, epoch, init_lr, lr_decay)
+
         net.train()
+
         for x, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
@@ -376,80 +392,82 @@ def training(
             # Network output
             output, _ = net(x)
 
-            # Comment only when AlexNet returns only one val
-            output = output[0]
-
             loss = lossfunction(output, y)
             loss.backward()
             optimizer.step()
+
+            loss_value += loss.data.cpu()
+
+        loss_value /= len(training_generator)
+        writer.add_scalars('losses', {'GT_loss': loss_value, }, epoch + 1)
+
         net.eval()
-        # Test only 10, 20, 30... epochs
-        if (epoch + 1) % 10 > 0 :
+
+        if (epoch + 1) % 10:
             logger.debug('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
-            continue
-        hit_training = 0
-        hit_validation = 0
-        for x, y in eval_trainset_generator:
-            # To CUDA tensors
-            x = torch.squeeze(x)
-            x = x.cuda().float()
-            y -= 1
 
-            # Network output
-            output, _ = net(x)
+        else:   # Test only 10, 20, 30... epochs
+            hit_training = 0
+            hit_validation = 0
 
-            # Comment only when AlexNet returns only one val
-            output = output[0]
+            for x, y in eval_trainset_generator:
+                # To CUDA tensors
+                x = torch.squeeze(x)
+                x = x.cuda().float()
+                y -= 1
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                # Network output
+                output, _ = net(x)
 
-                if np.argmax(prediction) == y:
-                    hit_training += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_training += (prediction == y.numpy()).sum()
+                # Comment only when AlexNet returns only one val
+                # output = output[0]
 
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-        for x, y in eval_validationset_generator:
-            # To CUDA tensors
-            x = torch.squeeze(x)
-            x = x.cuda().float()
-            y -= 1
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
 
-            # Network output
-            output, _ = net(x)
+            for x, y in eval_validationset_generator:
+                # To CUDA tensors
+                x = torch.squeeze(x)
+                x = x.cuda().float()
+                y -= 1
 
-            # Comment only when AlexNet returns only one val
-            output = output[0]
+                # Network output
+                output, _ = net(x)
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                # Comment only when AlexNet returns only one val
+                # output = output[0]
 
-                if np.argmax(prediction) == y:
-                    hit_validation += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_validation += (prediction == y.numpy()).sum()
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-        acc_training = float(hit_training) / num_training
-        acc_validation = float(hit_validation) / num_validation
-        logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
-        if acc_validation < 1. :
-            logger.error('This combination seems not working, stop training')
-            exit(1)
-        if save:
-            # torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
-            torch.save(net.state_dict(),
-                       result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation * 100) + '.pt')
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
+
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                         .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                         .format(acc_validation*100, hit_validation, num_validation))
+
+            if save:
+                torch.save(net.state_dict(),
+                           result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation * 100) + '.pt')
+            writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
 
 def training_KD(
@@ -473,25 +491,32 @@ def training_KD(
     save
     ):
     lossfunction = nn.CrossEntropyLoss()
-    writer = SummaryWriter()
+
     max_accuracy = 0.
+
     if low_ratio != 0:
-        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+        model_name = 'Student_LOW_{}x{}'.format(str(low_ratio), str(low_ratio)) + '_lr:' + str(init_lr) \
+                    + '_decay:' + str(lr_decay) + '_T:' + str(temperature)
     else:
         print('are you serious ...?')
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
 
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
     convloss = AverageMeter()
-    prev = []
-    bhlosses = []
-
-
-    temperature2 = 5
+    # prev = []
+    # bhlosses = []
 
     for epoch in range(epochs):
         loss= 0.
+
+        kdloss.reset()
+        gtloss.reset()
+        convloss.reset()
+
         if not vgg_gap:
             decay_lr(optimizer, epoch, init_lr, lr_decay)
         else:
@@ -526,14 +551,11 @@ def training_KD(
             # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
             MSE_loss = 0
 
-
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
-                                     F.softmax(teacher / temperature, dim=1))
-
+                                     F.softmax(teacher.detach() / temperature, dim=1))
             KD_loss = torch.mul(KD_loss, temperature * temperature)
 
             GT_loss = lossfunction(student, y)
-
 
             # loss = KD_loss + GT_loss - BH_loss
             loss = KD_loss + GT_loss
@@ -571,9 +593,15 @@ def training_KD(
 
             loss.backward()
             optimizer.step()
+
         net.eval()
 
-        if (epoch + 1) % 10 > 0 :
+        writer.add_scalars('losses', {'KD_loss': kdloss.avg,
+                                      'GT_loss': gtloss.avg,
+                                      'CONV_loss': convloss.avg,
+                                      }, epoch + 1)
+
+        if (epoch + 1) % 10:
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
             logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_LOSS : {:.3f}]'
                          .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
@@ -585,109 +613,108 @@ def training_KD(
                          # '\t[CONV5 Distance : {:.2f}]\n'
                          # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
                                  # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-            writer.add_scalars('losses', {'KD_loss':kdloss.avg,
-                                          'GT_loss':gtloss.avg,
-                                          'MSE_loss':convloss.avg,
-                                          }, epoch + 1)
-            continue
-        # Test
-        hit_training = 0
-        hit_validation = 0
-        for x_low, y in eval_trainset_generator:
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
 
-            # Network output
-            output, _ = net(x_low)
+        else:
+            # Test
+            hit_training = 0
+            hit_validation = 0
+            for x_low, y in eval_trainset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x_low)
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
+
+            count_success = 0
+            count_failure = 0
+            count_show = 3
+            success = []
+            failure = []
+            sr_success = []
+            sr_failure = []
+            for  x_low, y in eval_validationset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x_low)
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    # sr_image = vutils.make_grid(sr_x[0], normalize=True, scale_each=True)
+                    # image = vutils.make_grid(x_low[0], normalize=True, scale_each=True)
+
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                        if count_success > count_show :
+                            continue
+                        success.append(x_low[0])
+                        # sr_success.append(sr_x[0])
+                        count_success += 1
+                    elif count_failure < count_show + 1:
+                        count_failure += 1
+                        failure.append(x_low[0])
+                        # sr_failure.append(sr_x[0])
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
 
             if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                torch.stack(success, dim=0)
+                torch.stack(failure, dim=0)
+                # torch.stack(sr_success, dim=0)
+                # torch.stack(sr_failure, dim=0)
+                success = vutils.make_grid(success, normalize=True, scale_each=True)
+                failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+                # sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
+                # sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
 
-                if np.argmax(prediction) == y:
-                    hit_training += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_training += (prediction == y.numpy()).sum()
+                writer.add_image('Success', success, epoch + 1)
+                # writer.add_image('SR_Success', sr_success, epoch + 1)
+                writer.add_image('Failure', failure, epoch + 1)
+                # writer.add_image('SR_Failure', sr_failure, epoch + 1)
+            # Trace
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
+                         # '\t[CONV1 BHLOSS : {:.3f}]'
+                         # '\t[CONV2 BHLOSS : {:.3f}]'
+                         # '\t[CONV3 BHLOSS : {:.3f}]'
+                         # '\t[CONV4 BHLOSS : {:.3f}]'
+                         # '\t[CONV5 BHLOSS : {:.3f}]'
+                         # .format(epoch+1,kdloss.avg, gtloss.avg,
+                                 # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+            # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                         .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                         .format(acc_validation*100, hit_validation, num_validation))
+            if max_accuracy < acc_validation * 100:
+                max_accuracy = acc_validation
+            if save:
+                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+            writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
-
-        count_success = 0
-        count_failure = 0
-        count_show = 3
-        success = []
-        failure = []
-        sr_success = []
-        sr_failure = []
-        for  x_low, y in eval_validationset_generator:
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
-
-            # Network output
-            output, _ = net(x_low)
-
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
-
-                # sr_image = vutils.make_grid(sr_x[0], normalize=True, scale_each=True)
-                # image = vutils.make_grid(x_low[0], normalize=True, scale_each=True)
-
-                if np.argmax(prediction) == y:
-                    hit_validation += 1
-                    if count_success > count_show :
-                        continue
-                    success.append(x_low[0])
-                    # sr_success.append(sr_x[0])
-                    count_success += 1
-                elif count_failure < count_show + 1:
-                    count_failure += 1
-                    failure.append(x_low[0])
-                    # sr_failure.append(sr_x[0])
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_validation += (prediction == y.numpy()).sum()
-
-        if ten_crop is True:
-            torch.stack(success, dim=0)
-            torch.stack(failure, dim=0)
-            # torch.stack(sr_success, dim=0)
-            # torch.stack(sr_failure, dim=0)
-            success = vutils.make_grid(success, normalize=True, scale_each=True)
-            failure = vutils.make_grid(failure, normalize=True, scale_each=True)
-            # sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
-            # sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
-
-            writer.add_image('Success', success, epoch + 1)
-            # writer.add_image('SR_Success', sr_success, epoch + 1)
-            writer.add_image('Failure', failure, epoch + 1)
-            # writer.add_image('SR_Failure', sr_failure, epoch + 1)
-        # Trace
-        acc_training = float(hit_training) / num_training
-        acc_validation = float(hit_validation) / num_validation
-        # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}]\n'
-                     # '\t[CONV1 BHLOSS : {:.3f}]'
-                     # '\t[CONV2 BHLOSS : {:.3f}]'
-                     # '\t[CONV3 BHLOSS : {:.3f}]'
-                     # '\t[CONV4 BHLOSS : {:.3f}]'
-                     # '\t[CONV5 BHLOSS : {:.3f}]'
-                     # .format(epoch+1,kdloss.avg, gtloss.avg,
-                             # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
-        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
-        if max_accuracy < acc_validation * 100 : max_accuracy = acc_validation
-        if save:
-            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
@@ -725,7 +752,6 @@ def training_Gram_KD(
     glb_s_grad_at = OrderedDict()
     glb_c_grad_at = OrderedDict()
 
-
     ce_loss = nn.CrossEntropyLoss()
     # mse_loss = nn.MSELoss()
     mse_loss = nn.MSELoss(reduce=False)
@@ -736,9 +762,13 @@ def training_Gram_KD(
     convloss = AverageMeter()
 
     if low_ratio != 0:
-        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
+        model_name = 'Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio)) + '_lr:' + str(lr_decay) \
+                    + '_decay' + str(lr_decay) + '_T:' + str(temperature) + '_feat:' + gram_features
     else:
         print('are you serious ...?')
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
 
     teacher_net.eval()
 
@@ -824,7 +854,10 @@ def training_Gram_KD(
     """
 
     for epoch in range(epochs):
-        loss= 0.
+        gtloss.reset()
+        kdloss.reset()
+        convloss.reset()
+
         decay_lr(optimizer, epoch, init_lr, lr_decay)
         net.train()
         for x, x_low, y in training_generator:
@@ -927,73 +960,79 @@ def training_Gram_KD(
             optimizer.step()
         net.eval()
 
-        if (epoch + 1) % 10 > 0 :
+        writer.add_scalars('losses', {'KD_loss': kdloss.avg,
+                                      'GT_loss': gtloss.avg,
+                                      'CONV_loss': convloss.avg,
+                                      }, epoch + 1)
+
+        if (epoch + 1) % 10:
             logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
-            continue
-        # Test
-        hit_training = 0
-        hit_validation = 0
-        for x_low, y in eval_trainset_generator:
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+        else:   # Test
+            hit_training = 0
+            hit_validation = 0
+            for x_low, y in eval_trainset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
 
-            # Network output
-            output, _ = net(x_low)
+                # Network output
+                output, _ = net(x_low)
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-                if np.argmax(prediction) == y:
-                    hit_training += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_training += (prediction == y.numpy()).sum()
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
 
+            for x_low, y in eval_validationset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
 
-        for  x_low, y in eval_validationset_generator:
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
+                # Network output
+                output, _ = net(x_low)
 
-            # Network output
-            output, _ = net(x_low)
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
 
-                if np.argmax(prediction) == y:
-                    hit_validation += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_validation += (prediction == y.numpy()).sum()
+            # Trace
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+            # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                  .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                  .format(acc_validation*100, hit_validation, num_validation))
 
+            if max_accuracy < acc_validation: max_accuracy = acc_validation
+            if acc_validation < 0.01 :
+                logger.error('This combination seems not working, stop training')
+                exit(1)
 
-        # Trace
-        acc_training = float(hit_training) / num_training
-        acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
-        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
+            if save:
+                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' +
+                           str(acc_validation* 100) + '.pt')
 
-        if max_accuracy < acc_validation: max_accuracy = acc_validation
-        if acc_validation < 0.01 :
-            logger.error('This combination seems not working, stop training')
-            exit(1)
+            writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
-        if save:
-            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
@@ -1027,7 +1066,16 @@ def training_attention_SR(
     glb_grad_at = OrderedDict()
 
     teacher_net.conv5.register_backward_hook(save_grad_at)
-    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), description)))
+
+    if low_ratio != 0:
+        model_name = 'RACNN_{}x{}_'.format(str(low_ratio), str(low_ratio)) + '_lr:' + str(lr_decay) \
+                     + '_decay' + str(lr_decay) + '_T:' + str(temperature) + '_feat:' + gram_features
+    else:
+        print('are you serious ...?')
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
+    model_name = '/' + model_name
+
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     max_accuracy = 0.
@@ -1036,19 +1084,15 @@ def training_attention_SR(
     srloss = AverageMeter()
     kdloss = AverageMeter()
 
-    if low_ratio != 0:
-        modelName = '/Student_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio))
-    else:
-        print('are you serious ...?')
-
-
     for epoch in range(epochs):
         loss= 0.
+
         gtloss.reset()
         srloss.reset()
         kdloss.reset()
 
-        # decay_lr(optimizer, epoch, init_lr, lr_decay)
+        decay_lr(optimizer, epoch, init_lr, lr_decay)
+
         net.train()
         for x, x_low, y in training_generator:
             # training_bar.set_description('TRAINING EPOCH[{}/{}]'.format(i, str(46)))
@@ -1117,109 +1161,111 @@ def training_attention_SR(
                                       'KD': kdloss.avg}, epoch + 1)
         net.eval()
 
-        if (epoch + 1) % 10 > 0 :
+        if (epoch + 1) % 10:
             logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}][KD_LOSS : {:.3f}]'
                      .format(epoch+1, gtloss.avg, srloss.avg, kdloss.avg))
-            continue
-        # Test
-        hit_training = 0
-        hit_validation = 0
-        eval_training_bar = tqdm(eval_trainset_generator)
-        eval_validation_bar = tqdm(eval_validationset_generator)
-        count_success = 0
-        count_failure = 0
-        count_show = 3
-        success = []
-        failure = []
-        sr_success = []
-        sr_failure = []
-        for i,(x_low, y) in enumerate(eval_training_bar):
-            eval_training_bar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_training)))
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
+        else:
+            # Test
+            hit_training = 0
+            hit_validation = 0
+            eval_training_bar = tqdm(eval_trainset_generator)
+            eval_validation_bar = tqdm(eval_validationset_generator)
+            count_success = 0
+            count_failure = 0
+            count_show = 3
+            success = []
+            failure = []
+            sr_success = []
+            sr_failure = []
+            for i,(x_low, y) in enumerate(eval_training_bar):
+                eval_training_bar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_training)))
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
 
-            # Network output
-            # sr_image, output = net(x_low)
-            # output, features = output
-            output, features, sr_image = net(x_low)
+                # Network output
+                # sr_image, output = net(x_low)
+                # output, features = output
+                output, features, sr_image = net(x_low)
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-                if np.argmax(prediction) == y:
-                    hit_training += 1
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_training += (prediction == y.numpy()).sum()
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
 
 
-        for i,(x_low, y) in enumerate(eval_validation_bar):
-            eval_validation_bar.set_description('TESTING TEST SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_validation)))
-            # To CUDA tensors
-            x_low = torch.squeeze(x_low)
-            x_low = x_low.cuda().float()
-            y -= 1
+            for i,(x_low, y) in enumerate(eval_validation_bar):
+                eval_validation_bar.set_description('TESTING TEST SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_validation)))
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
 
-            # Network output
-            # sr_image, output = net(x_low)
-            # output, features = output
-            output, features, sr_image = net(x_low)
+                # Network output
+                # sr_image, output = net(x_low)
+                # output, features = output
+                output, features, sr_image = net(x_low)
 
-            if ten_crop is True:
-                prediction = torch.mean(output, dim=0)
-                prediction = prediction.cpu().detach().numpy()
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
 
-                if np.argmax(prediction) == y:
-                    hit_validation += 1
-                    if count_success > count_show :
-                        continue
-                    success.append(x_low[0])
-                    sr_success.append(sr_image[0])
-                    count_success += 1
-                elif count_failure < count_show + 1:
-                    count_failure += 1
-                    failure.append(x_low[0])
-                    sr_failure.append(sr_image[0])
-            else:
-                _, prediction = torch.max(output, 1)
-                prediction = prediction.cpu().detach().numpy()
-                hit_validation += (prediction == y.numpy()).sum()
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                        if count_success > count_show :
+                            continue
+                        success.append(x_low[0])
+                        sr_success.append(sr_image[0])
+                        count_success += 1
+                    elif count_failure < count_show + 1:
+                        count_failure += 1
+                        failure.append(x_low[0])
+                        sr_failure.append(sr_image[0])
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
 
-        torch.stack(success, dim=0)
-        torch.stack(failure, dim=0)
-        torch.stack(sr_success, dim=0)
-        torch.stack(sr_failure, dim=0)
-        success = vutils.make_grid(success, normalize=True, scale_each=True)
-        failure = vutils.make_grid(failure, normalize=True, scale_each=True)
-        sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
-        sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
+            torch.stack(success, dim=0)
+            torch.stack(failure, dim=0)
+            torch.stack(sr_success, dim=0)
+            torch.stack(sr_failure, dim=0)
+            success = vutils.make_grid(success, normalize=True, scale_each=True)
+            failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+            sr_success = vutils.make_grid(sr_success, normalize=True, scale_each=True)
+            sr_failure = vutils.make_grid(sr_failure, normalize=True, scale_each=True)
 
-        writer.add_image('Success', success, epoch + 1)
-        writer.add_image('SR_Success', sr_success, epoch + 1)
-        writer.add_image('Failure', failure, epoch + 1)
-        writer.add_image('SR_Failure', sr_failure, epoch + 1)
+            writer.add_image('Success', success, epoch + 1)
+            writer.add_image('SR_Success', sr_success, epoch + 1)
+            writer.add_image('Failure', failure, epoch + 1)
+            writer.add_image('SR_Failure', sr_failure, epoch + 1)
 
-        # Trace
-        acc_training = float(hit_training) / num_training
-        acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
-                     .format(epoch+1, gtloss.avg, srloss.avg))
-        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
-              .format(acc_training*100, hit_training, num_training))
-        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
-              .format(acc_validation*100, hit_validation, num_validation))
+            # Trace
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
+                         .format(epoch+1, gtloss.avg, srloss.avg))
+            # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                  .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                  .format(acc_validation*100, hit_validation, num_validation))
 
-        if max_accuracy < acc_validation: max_accuracy = acc_validation
-        if acc_validation < 0.01 :
-            logger.error('This combination seems not working, stop training')
-            exit(1)
+            if max_accuracy < acc_validation: max_accuracy = acc_validation
+            if acc_validation < 0.01 :
+                logger.error('This combination seems not working, stop training')
+                exit(1)
 
-        if save:
-            torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation* 100) + '.pt')
+            if save:
+                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
+            writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
