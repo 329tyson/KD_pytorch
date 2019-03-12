@@ -1044,6 +1044,10 @@ def training_attention_SR(
 
     for epoch in range(epochs):
         loss= 0.
+        gtloss.reset()
+        srloss.reset()
+        kdloss.reset()
+
         # decay_lr(optimizer, epoch, init_lr, lr_decay)
         net.train()
         for x, x_low, y in training_generator:
@@ -1059,9 +1063,11 @@ def training_attention_SR(
 
             # Network output
             teacher, t_features = teacher_net(x)
-            sr_image, output = net(x_low)
-            output, s_features = output
+            # sr_image, output = net(x_low)
+            # output, s_features = output
+            output, s_features, sr_image = net(x_low)
 
+            """
             one_hot_y = torch.zeros(output.shape).float().cuda()
             for i in range(output.shape[0]):
                 one_hot_y[i][y[i]] = 1.0
@@ -1070,13 +1076,27 @@ def training_attention_SR(
 
 
             # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
-            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'], 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
-            # SR_loss = 0
+            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'].detach(), 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
+            """
+
+            SR_loss = 0
+
+            if str(1) in gram_features:
+                SR_loss += mse_loss(s_features['conv1'], t_features['conv1'].detach())
+            if str(2) in gram_features:
+                SR_loss += mse_loss(s_features['conv2'], t_features['conv2'].detach())
+            if str(3) in gram_features:
+                SR_loss += mse_loss(s_features['conv3'], t_features['conv3'].detach())
+            if str(4) in gram_features:
+                SR_loss += mse_loss(s_features['conv4'], t_features['conv4'].detach())
+            if str(5) in gram_features:
+                SR_loss += mse_loss(s_features['conv5'], t_features['conv5'].detach())
 
             # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)
-            KD_loss = nn.KLDivLoss()(F.log_softmax(output / 3, dim=1),
-                                     F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
+            KD_loss = nn.KLDivLoss()(F.log_softmax(output / temperature, dim=1),
+                                     F.softmax(teacher.detach() / temperature, dim=1))    # teacher's hook is called in every loss.backward()
+            KD_loss = torch.mul(KD_loss, temperature * temperature)
 
             loss = GT_loss + KD_loss + SR_loss
             optimizer.zero_grad()
@@ -1121,8 +1141,9 @@ def training_attention_SR(
             y -= 1
 
             # Network output
-            sr_image, output = net(x_low)
-            output, features = output
+            # sr_image, output = net(x_low)
+            # output, features = output
+            output, features, sr_image = net(x_low)
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -1144,8 +1165,9 @@ def training_attention_SR(
             y -= 1
 
             # Network output
-            sr_image, output = net(x_low)
-            output, features = output
+            # sr_image, output = net(x_low)
+            # output, features = output
+            output, features, sr_image = net(x_low)
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)

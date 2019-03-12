@@ -230,9 +230,9 @@ class RACNN(nn.Module):
 
     def forward(self, x):
         sr_x = self.srLayer(x)
-        output, _ = self.classificationLayer(sr_x)
+        output, features = self.classificationLayer(sr_x)
 
-        return output, sr_x
+        return output, features, sr_x
 
     def get_all_params_except_last_fc(self):
         b = []

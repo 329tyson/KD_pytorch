@@ -6,7 +6,7 @@ from train import training
 from train import training_KD
 from train import training_Gram_KD
 from train import training_attention_SR
-from save_gradient import calculate_grad
+from save_gradient import calculate_attention
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
 from preprocess import generate_dataset
@@ -252,45 +252,45 @@ if __name__ == '__main__':
                 logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
 
-                logger.debug(args.message)
-                logger.debug(
-                    '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
-                                                                                                  str(args.low_ratio)))
-                logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
-                optimizer = optim.SGD(
-                    [{'params':net.srLayer.parameters(), 'lr': 0.0},
+            logger.debug(args.message)
+            logger.debug(
+                '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
+                                                                                              str(args.low_ratio)))
+            logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+            optimizer = optim.SGD(
+                     [{'params':net.srLayer.parameters(), 'lr': 0.0},
                      {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
                      {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
                       'weight_decay': 1.0 * 0.0005},
                      {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
                       'weight_decay': 0.0}],
-                    momentum=0.95, weight_decay=0.0005)
-                training_attention_SR(
-                    teacher_net,
-                    net,
-                    optimizer,
-                    args.kd_temperature,
-                    args.lr,
-                    args.lr_decay,
-                    args.epochs,
-                    args.ten_batch_eval,
-                    train_loader,
-                    eval_train_loader,
-                    eval_validation_loader,
-                    num_training,
-                    num_validation,
-                    args.low_ratio,
-                    args.result,
-                    logger,
-                    args.style_weight,
-                    args.norm_type,
-                    args.patch_num,
-                    args.gram_features,
-                    args.at_enabled,
-                    args.at_ratio,
-                    args.save,
-                    args.message
-                )
+                     momentum=0.95, weight_decay=0.0005)
+            training_attention_SR(
+                teacher_net,
+                net,
+                optimizer,
+                args.kd_temperature,
+                args.lr,
+                args.lr_decay,
+                args.epochs,
+                args.ten_batch_eval,
+                train_loader,
+                eval_train_loader,
+                eval_validation_loader,
+                num_training,
+                num_validation,
+                args.low_ratio,
+                args.result,
+                logger,
+                args.style_weight,
+                args.norm_type,
+                args.patch_num,
+                args.gram_features,
+                args.at_enabled,
+                args.at_ratio,
+                args.save,
+                args.message
+            )
 
     else :
         if args.low_ratio == 0:
