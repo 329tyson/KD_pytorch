@@ -62,6 +62,7 @@ if __name__ == '__main__':
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
+    if args.sr_pretrain_path != 'NONE':
         args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
 
     if args.dataset.lower() == 'cub':
@@ -217,7 +218,7 @@ if __name__ == '__main__':
                     logger,
                     args.vgg_gap,
                     args.save
-               )
+                    )
     elif args.sr_enabled is True:
         if args.low_ratio == 0:
             print('Invalid argument, choose low resolution (50 | 25)')
@@ -227,7 +228,6 @@ if __name__ == '__main__':
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
             teacher_net = AlexNet(0.5, args.classes, ['fc8'])
             load_weight(teacher_net, args.pretrain_path)
-            # net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, alex_pretrained=True, sr_weights_path = args.sr_pretrain_path, sr_pretrained=True)
             net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, sr_weights_path = args.sr_pretrain_path)
             net.cuda()
             teacher_net.cuda()
@@ -257,14 +257,27 @@ if __name__ == '__main__':
                 '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
                                                                                               str(args.low_ratio)))
             logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+            # optimizer = optim.SGD(
+            #          [{'params':net.srLayer.parameters(), 'lr': 0.0},
+            #          {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
+            #          {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
+            #           'weight_decay': 1.0 * 0.0005},
+            #          {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
+            #           'weight_decay': 0.0}],
+            #          momentum=0.95, weight_decay=0.0005)
+
             optimizer = optim.SGD(
-                     [{'params':net.srLayer.parameters(), 'lr': 0.0},
-                     {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
-                     {'params':net.classificationLayer.fc8.weight, 'lr': 1.0 * args.lr,
-                      'weight_decay': 1.0 * 0.0005},
-                     {'params':net.classificationLayer.fc8.bias, 'lr': 2.0 * args.lr,
-                      'weight_decay': 0.0}],
-                     momentum=0.95, weight_decay=0.0005)
+                [{'params': net.classificationLayer.conv1.parameters()},
+                 {'params': net.classificationLayer.conv2.parameters()},
+                 {'params': net.classificationLayer.conv3.parameters()},
+                 {'params': net.classificationLayer.conv4.parameters()},
+                 {'params': net.classificationLayer.conv5.parameters()},
+                 {'params': net.classificationLayer.fc6.parameters()},
+                 {'params': net.classificationLayer.fc7.parameters()},
+                 {'params': net.classificationLayer.fc8.parameters(), 'lr': args.lr * 10}],
+                lr=args.lr,
+                momentum=0.9,
+                weight_decay=0.0005)
             training_attention_SR(
                 teacher_net,
                 net,
@@ -292,7 +305,7 @@ if __name__ == '__main__':
                 args.message
             )
 
-    else :
+    else:
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')
             print('\t on ',args.dataset.upper(),' dataset, with hyper parameters above')

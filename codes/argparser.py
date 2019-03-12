@@ -184,7 +184,7 @@ def parse():
     )
     parser.add_argument(
         '--sr_pretrain_path',
-        type=str
+        default='NONE', type=str, help='Pretrained model (.pth)'
     )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
