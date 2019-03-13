@@ -1016,7 +1016,6 @@ def training_Gram_KD(
             acc_validation = float(hit_validation) / num_validation
             logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
                          .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
-            # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
             logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
                   .format(acc_training*100, hit_training, num_training))
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
@@ -1135,6 +1134,7 @@ def training_attention_SR(
                 SR_loss += mse_loss(s_features['conv4'], t_features['conv4'].detach())
             if str(5) in gram_features:
                 SR_loss += mse_loss(s_features['conv5'], t_features['conv5'].detach())
+            SR_loss *= attention_weight 
 
             # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)
@@ -1147,7 +1147,8 @@ def training_attention_SR(
             loss.backward()
 
             gtloss.update(GT_loss.item(), x_low.size(0))
-            srloss.update(SR_loss, x_low.size(0))
+            # srloss.update(SR_loss, x_low.size(0))
+            srloss.update(SR_loss.item(), x_low.size(0))
             kdloss.update(KD_loss.item(), x_low.size(0))
 
             if SR_loss == float('inf') or SR_loss != SR_loss:
