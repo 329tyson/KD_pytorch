@@ -252,11 +252,14 @@ if __name__ == '__main__':
                 logger = getlogger(args.log_dir + '/SR_DATASET_{}_LOW_{}'
                                    .format(args.dataset, str(args.low_ratio)))
 
-            logger.debug(args.message)
+            # logger.debug(args.message)
+            for arg in vars(args):
+                logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.debug(
                 '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
                                                                                               str(args.low_ratio)))
             logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+
             # optimizer = optim.SGD(
             #          [{'params':net.srLayer.parameters(), 'lr': 0.0},
             #          {'params':net.get_all_params_except_last_fc(), 'lr': 0.1 * args.lr},
