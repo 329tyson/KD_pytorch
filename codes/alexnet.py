@@ -118,18 +118,12 @@ class AlexNet(nn.Module):
     def create_network(self):
         self.conv1 = self.init_layer('conv1', nn.Conv2d(3, 96, kernel_size=11, stride=4))
         self.relu1 = nn.ReLU(inplace=True)
-        # Tensorflow LRN
         self.norm1 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
-        # Caffe LRN
-        # self.norm1 = nn.LocalResponseNorm(size=5, alpha=1e-04, beta=0.75, k=1.0)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
 
         self.conv2 = self.init_layer('conv2', nn.Conv2d(96, 256, kernel_size=5, padding=2, groups=2))
         self.relu2 = nn.ReLU(inplace=True)
-        # Tensorflow LRN
         self.norm2 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
-        # Caffe LRN
-        # self.norm2 = nn.LocalResponseNorm(size=5, alpha=1e-04, beta=0.75, k=1.0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2)
 
         self.conv3 = self.init_layer('conv3', nn.Conv2d(256, 384, kernel_size=3, padding=1))
@@ -151,27 +145,6 @@ class AlexNet(nn.Module):
         self.dropout7 = nn.Dropout(p=self.KEEP_PROB)
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
-
-        # for multi gpu training, uncomment below
-        # self.relu1 = nn.DataParallel(self.relu1)
-        # self.norm1 = nn.DataParallel(self.norm1)
-        # self.pool1 = nn.DataParallel(self.pool1)
-
-        # self.relu2 = nn.DataParallel(self.relu2)
-        # self.norm2 = nn.DataParallel(self.norm2)
-        # self.pool2 = nn.DataParallel(self.pool2)
-
-        # self.relu3 = nn.DataParallel(self.relu3)
-        # self.relu4 = nn.DataParallel(self.relu4)
-
-        # self.relu5 = nn.DataParallel(self.relu5)
-        # self.pool5 = nn.DataParallel(self.pool5)
-
-        # self.relu6 = nn.DataParallel(self.relu6)
-        # self.dropout6 = nn.DataParallel(self.dropout6)
-
-        # self.relu7 = nn.DataParallel(self.relu7)
-        # self.dropout7 = nn.DataParallel(self.dropout7)
 
         print('[AlexNet]')
         print('pool1', self.pool1)

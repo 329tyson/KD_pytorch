@@ -171,7 +171,8 @@ def parse():
     )
     parser.add_argument(
         '--sr_pretrain_path',
-        type=str
+        type=str,
+        default='None'
     )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)

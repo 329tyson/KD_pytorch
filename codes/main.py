@@ -2,10 +2,7 @@ from argparser import parse
 from alexnet import AlexNet
 from VGG_gap import VGG_gap
 from alexnet import RACNN
-from train import training
-from train import training_KD
-from train import training_Gram_KD
-from train import training_attention_SR
+from train import *
 from save_gradient import calculate_grad
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
@@ -62,6 +59,7 @@ if __name__ == '__main__':
 
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
+    if args.sr_pretrain_path != 'NONE':
         args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
 
     if args.dataset.lower() == 'cub':
@@ -251,6 +249,8 @@ if __name__ == '__main__':
                                    .format(args.dataset, str(args.low_ratio)))
 
                 logger.debug(args.message)
+                for arg in vars(args):
+                    logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
                 logger.debug(
                     '\nTraining model with Attention weighted SR, Low resolution of {}x{}'.format(str(args.low_ratio),
                                                                                                   str(args.low_ratio)))
@@ -355,4 +355,3 @@ if __name__ == '__main__':
                      args.vgg_gap,
                      args.save
                      )
-

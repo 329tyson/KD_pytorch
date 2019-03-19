@@ -53,6 +53,12 @@ def decay_lr(optimizer, epoch, init_lr, decay_period):
         param_group['lr'] = lr
     optimizer.param_groups[7]['lr'] = lr * 10
 
+def adjust_learning_rate(optimizer, epoch):
+    for param_group in optimizer.param_groups:
+        lr = param_group['lr']
+        lr = lr * (0.1 ** (epoch // 300))
+        param_group['lr'] = lr
+
 def decay_lr_vgg(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
@@ -169,10 +175,6 @@ def calculate_attendedGram_loss(s_feature, t_feature, norm_type, style_weight, m
 def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, at):
     bn, c, h, w = t_feature.shape
 
-    # print 'SR image shape : {}'.format(s_feature.shape)
-    # print 'HR image shape : {}'.format(t_feature.shape)
-    # print 'ATTENTION shape : {}'.format(at.shape)
-
     spatial_size = h * w
     reduced_size = int(spatial_size / ratio)
 
@@ -180,24 +182,9 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     t_feature = t_feature.view(bn,c,-1)
     s_feature = s_feature.view(bn,c,-1)
 
-    # FIXME: other mehod to calculate attention
-    # at = torch.sum(t_feature, dim=1)
-    # at = at.view(bn, -1)
-
     # Normalise to scale 1
     at = torch.div(at.view(bn, -1), torch.sum(at, dim =(1,2)).view(bn, 1))
     at = torch.mul(at, h * w)
-
-    # _, index = torch.sort(at, dim=1, descending=True)
-    # index, _ = torch.sort(index[:,:reduced_size], dim=1)
-
-    # t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
-    # s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
-
-    # KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
-                                     # F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
-    # loss = torch.mul(KD_loss, 9)
-    # loss = loss_fn(s_feature, t_feature)
 
     diff = torch.sub(t_feature, s_feature)
     diff = torch.mul(diff, diff)
@@ -912,8 +899,11 @@ def training_attention_SR(
 
     for epoch in range(epochs):
         loss= 0.
-        # decay_lr(optimizer, epoch, init_lr, lr_decay)
+        adjust_learning_rate(optimizer, epoch)
         net.train()
+        gtloss.reset()
+        srloss.reset()
+        kdloss.reset()
         for x, x_low, y in training_generator:
             # training_bar.set_description('TRAINING EPOCH[{}/{}]'.format(i, str(46)))
             # To CUDA tensors
@@ -938,20 +928,21 @@ def training_attention_SR(
 
 
             # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
-            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'], 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
-            # SR_loss = 0
+            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'].detach(), 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
+            # SR_loss = mse_loss(s_features['conv5'], t_features['conv5'])
 
             # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)
             KD_loss = nn.KLDivLoss()(F.log_softmax(output / 3, dim=1),
                                      F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
+            KD_loss = torch.mul(KD_loss, 9)
 
             loss = GT_loss + KD_loss + SR_loss
             optimizer.zero_grad()
             loss.backward()
 
             gtloss.update(GT_loss.item(), x_low.size(0))
-            srloss.update(SR_loss, x_low.size(0))
+            srloss.update(SR_loss.item(), x_low.size(0))
             kdloss.update(KD_loss.item(), x_low.size(0))
 
             if SR_loss == float('inf') or SR_loss != SR_loss:
@@ -987,38 +978,27 @@ def training_attention_SR(
             x_low = torch.squeeze(x_low)
             x_low = x_low.cuda().float()
             y -= 1
-
-            # Network output
             sr_image, output = net(x_low)
             output, features = output
-
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
                 prediction = prediction.cpu().detach().numpy()
-
                 if np.argmax(prediction) == y:
                     hit_training += 1
             else:
                 _, prediction = torch.max(output, 1)
                 prediction = prediction.cpu().detach().numpy()
                 hit_training += (prediction == y.numpy()).sum()
-
-
         for i,(x_low, y) in enumerate(eval_validation_bar):
             eval_validation_bar.set_description('TESTING TEST SET, PROCESSING BATCH[{}/{}]'.format(i, str(num_validation)))
-            # To CUDA tensors
             x_low = torch.squeeze(x_low)
             x_low = x_low.cuda().float()
             y -= 1
-
-            # Network output
             sr_image, output = net(x_low)
             output, features = output
-
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
                 prediction = prediction.cpu().detach().numpy()
-
                 if np.argmax(prediction) == y:
                     hit_validation += 1
                     if count_success > count_show :
@@ -1054,7 +1034,6 @@ def training_attention_SR(
         acc_validation = float(hit_validation) / num_validation
         logger.debug('[EPOCH{}][Training][GT_LOSS : {:.3f}][RECON_LOSS : {:.3f}]'
                      .format(epoch+1, gtloss.avg, srloss.avg))
-        # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
         logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
