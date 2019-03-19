@@ -248,26 +248,29 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     return diff
 
 
-def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, c, s):
+def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, channel, spatial):
     bn, c, h, w = s_feature.shape
 
-    if s:
-        s_at = (F.normalize(s_at.view(bn,-1), p=1, dim=1)).view(bn, h, w)
-        print 's_at after norm : ', torch.min(s_at).data.cpu(), torch.mean(s_at.view(bn, -1)).data.cpu(), torch.max(s_at).data.cpu()
-    if c:
-        c_at = F.normalize(c_at, p=1, dim=1)
+    if spatial:
+        s_at = F.normalize(s_at.view(bn,-1), p=1, dim=1)    # shape: [bn, h*w]
+        s_at = s_at / torch.max(s_at, dim=1)[0].unsqueeze(1)
+        s_at = s_at.view(bn, h, w)
+        # print 's_at after norm : ', torch.min(s_at).data.cpu(), torch.mean(s_at.view(bn, -1)).data.cpu(), torch.max(s_at).data.cpu()
+    if channel:
+        c_at = F.normalize(c_at, p=1, dim=1)    # shape: [bn, c]
+        c_at = c_at / torch.max(c_at, dim=1)[0].unsqueeze(1)
         print 'c_at after norm : ', torch.min(c_at).data.cpu(), torch.mean(c_at.view(bn, -1)).data.cpu(), torch.max(c_at).data.cpu()
 
     loss = loss_fn(s_feature, t_feature)
     loss = loss.view(bn, c, -1)
 
-    if c:
+    if channel:
         c_at = c_at.unsqueeze(2) # c_at = [bn, c, 1]
         loss = c_at * loss
     loss = torch.mean(loss, dim=1)
     loss = loss.view(bn, h, w)
     
-    if s:
+    if spatial:
         loss = s_at * loss
     loss = torch.mean(loss)
 
@@ -709,7 +712,7 @@ def training_KD(
                          .format(acc_training*100, hit_training, num_training))
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                          .format(acc_validation*100, hit_validation, num_validation))
-            if max_accuracy < acc_validation * 100:
+            if max_accuracy < acc_validation:
                 max_accuracy = acc_validation
             if save:
                 torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
