@@ -49,16 +49,16 @@ class SRLayer(nn.Module):
         layer.weight.data.normal_(mean=0.0, std=0.001)
         layer.bias.data.fill_(0)
         return layer
-
 class AlexNet(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
-                 weights_path='DEFAULT', res=None):
+                 res=False):
         super(AlexNet, self).__init__()
         # Parse input arguments into class variables
         self.NUM_CLASSES = num_classes
         self.KEEP_PROB = keep_prob
         self.SKIP_LAYER = skip_layer
         self.var_dict = {}
+        self.res = res
 
         # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
         self.load=True
@@ -90,6 +90,16 @@ class AlexNet(nn.Module):
         x = self.relu4(x)
 
         x = self.conv5(x)
+        residual = x
+        # ResConv Start
+        if self.res:
+            x = self.res_conv1(x)
+            x = self.res_relu1(x)
+            x = self.res_conv2(x)
+            x = self.res_relu2(x)
+            x = self.res_conv3(x)
+            x = torch.add(residual,x)
+        # ResConv End
         conv5 = x
         x = self.relu5(x)
         x = self.pool5(x)
@@ -146,6 +156,17 @@ class AlexNet(nn.Module):
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
 
+
+        if self.res:
+        # Residual_Conv5
+            self.res_conv1 = self.init_layer('res_conv1', nn.Conv2d(256, 384, kernel_size=9, padding=4))
+            self.res_conv2 = self.init_layer('res_conv2', nn.Conv2d(384, 384, kernel_size=5, padding=2))
+            self.res_conv3 = self.init_layer('res_conv3', nn.Conv2d(384, 256, kernel_size=5, padding=2))
+
+            self.res_relu1 = nn.ReLU(inplace=True)
+            self.res_relu2 = nn.ReLU(inplace=True)
+        # Resiudual Conv End
+
         print('[AlexNet]')
         print('pool1', self.pool1)
         print('pool2', self.pool2)
@@ -165,8 +186,6 @@ class AlexNet(nn.Module):
         # net = nn.DataParallel(net)
 
         return net
-
-
 class RACNN(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
                 alex_weights_path=None, sr_weights_path=None, from_npy=False):

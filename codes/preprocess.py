@@ -23,7 +23,7 @@ def load_weight(net, pretrained_path, fit=True):
         net.load_state_dict(converted, strict = fit)
     else:
         weight = torch.load(pretrained_path)
-        net.load_state_dict(weight, strict = fit)
+        net.load_state_dict(weight, strict = False)
 
 def generate_dataset(
     dataset,

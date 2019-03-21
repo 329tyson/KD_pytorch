@@ -48,7 +48,7 @@ def bhatta_loss(output, target, prev=[], mode='numpy'):
     return out
 
 def decay_lr(optimizer, epoch, init_lr, decay_period):
-    lr = init_lr * (0.1 ** (epoch // decay_period))
+    lr = init_lr * (0.1 ** (epoch // 300))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     optimizer.param_groups[7]['lr'] = lr * 10
@@ -693,6 +693,9 @@ def training_Gram_KD(
     for epoch in range(epochs):
         loss= 0.
         decay_lr(optimizer, epoch, init_lr, lr_decay)
+        kdloss.reset()
+        gtloss.reset()
+        convloss.reset()
         net.train()
         for x, x_low, y in training_generator:
             # To CUDA tensors
@@ -759,8 +762,8 @@ def training_Gram_KD(
                     GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
                     # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
                 if str(5) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv5, t_conv5)
-                    GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
+                    GRAM_loss += mse_loss(s_conv5, t_conv5)
+                    # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
                     # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
                 # GRAM_loss *= style_weight
 
@@ -928,8 +931,8 @@ def training_attention_SR(
 
 
             # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
-            SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'].detach(), 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
-            # SR_loss = mse_loss(s_features['conv5'], t_features['conv5'])
+            # SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'].detach(), 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
+            SR_loss = mse_loss(s_features['conv5'], t_features['conv5'])
 
             # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)

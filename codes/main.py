@@ -81,7 +81,7 @@ if __name__ == '__main__':
             weight_decay=0.0005)
 
     else:
-        net = AlexNet(0.5, args.classes, ['fc8'])
+        net = AlexNet(0.5, args.classes, ['fc8'], res=True)
         load_weight(net, args.pretrain_path)
 
         optimizer= optim.SGD(
