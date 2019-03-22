@@ -9,13 +9,13 @@ from torch.nn import functional as F
 from collections import OrderedDict
 
 global glb_grad_teacher # dictionary saving gradient of intermediate feature
-global glb_feature 
-global img_index 
+global glb_feature
+global img_index
 
 # TODO: How about batch_size > 1 ???
 
 def save_grad_at(module, grad_in, grad_out):
-    global glb_grad_teacher 
+    global glb_grad_teacher
     global img_index
 
     # Assume : batch size 1
@@ -70,14 +70,14 @@ def write_gradient(filename, data):
 
 def write_gradcam(filename, gcam, raw_image_path, image):
     h, w, _ = image.shape
-    
+
     gcam = cv2.resize(gcam, (w, h))
     # gcam = cv2.resize(gcam, (227,227))
     gcam = cv2.applyColorMap(np.uint8(gcam * 255.0), cv2.COLORMAP_JET)
     gcam = gcam.astype(np.float) + image.astype(np.float)
     gcam = gcam / gcam.max() * 255.0
     cv2.imwrite(filename, np.uint8(gcam))
-    
+
 def calculate_grad(
     net,
     training_generator) :
@@ -96,7 +96,7 @@ def calculate_grad(
     img_index = 0
 
     ce_loss = nn.CrossEntropyLoss()
-    
+
     # net.train()
     net.eval()
 
@@ -116,11 +116,11 @@ def calculate_grad(
 
         filename = paths[0].split("/")[-1].split(".")[0]
         species = paths[0].split("/")[-2]
-        
+
         net.zero_grad()
-        
+
         t, t_features = net(x)
-        
+
         # GT_loss = ce_loss(t,y)
         # GT_loss.backward()
 
@@ -173,17 +173,17 @@ def calculate_gradCAM(
     net.eval()
 
     handlers = []
-    handlers.append( net.conv1.register_forward_hook(save_feature) )
-    handlers.append( net.conv2.register_forward_hook(save_feature) )
-    handlers.append( net.conv3.register_forward_hook(save_feature) )
-    handlers.append( net.conv4.register_forward_hook(save_feature) )
-    handlers.append( net.conv5.register_forward_hook(save_feature) )
+    handlers.append( net.conv1.register_forward_hook(save_feature))
+    handlers.append( net.conv2.register_forward_hook(save_feature))
+    handlers.append( net.conv3.register_forward_hook(save_feature))
+    handlers.append( net.conv4.register_forward_hook(save_feature))
+    handlers.append( net.conv5.register_forward_hook(save_feature))
 
-    handlers.append( net.conv1.register_backward_hook(save_grad) )
-    handlers.append( net.conv2.register_backward_hook(save_grad) )
-    handlers.append( net.conv3.register_backward_hook(save_grad) )
-    handlers.append( net.conv4.register_backward_hook(save_grad) )
-    handlers.append( net.conv5.register_backward_hook(save_grad) )
+    handlers.append( net.conv1.register_backward_hook(save_grad))
+    handlers.append( net.conv2.register_backward_hook(save_grad))
+    handlers.append( net.conv3.register_backward_hook(save_grad))
+    handlers.append( net.conv4.register_backward_hook(save_grad))
+    handlers.append( net.conv5.register_backward_hook(save_grad))
 
     for x, _, y,path in training_generator:
         x = x.cuda().float()
@@ -208,7 +208,7 @@ def calculate_gradCAM(
         # GT_loss.backward()
 
         t.backward(gradient=one_hot_y)
-        
+
         conv1_gcam = compute_gradCAM(glb_feature[id(net.conv1)][img_index], glb_grad_teacher[id(net.conv1)][img_index])
         conv2_gcam = compute_gradCAM(glb_feature[id(net.conv2)][img_index], glb_grad_teacher[id(net.conv2)][img_index])
         conv3_gcam = compute_gradCAM(glb_feature[id(net.conv3)][img_index], glb_grad_teacher[id(net.conv3)][img_index])
@@ -223,13 +223,13 @@ def calculate_gradCAM(
 
         # To save all grad_cam of training images, uncomment following lines
         img_index += 1
-        if img_index > 10:
-            break
+        # if img_index > 10:
+            # break
 
     # net.eval()
-    
+
     remove_hook(handlers)
 
     return
-    
+
 

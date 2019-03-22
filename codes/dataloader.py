@@ -44,8 +44,8 @@ class Dataset(data.Dataset):
                 self.Bbox[idx][2],
                 self.Bbox[idx][3]
             )
-            return image, low_image, img_label
-            # return image, low_image, img_label, img_path
+            # return image, low_image, img_label
+            return image, low_image, img_label, img_path
 
         if self.ten_crop is False:
             image= self.transform(
@@ -171,4 +171,3 @@ class Dataset(data.Dataset):
         image = np.stack(image, axis = 0)
 
         return image
-

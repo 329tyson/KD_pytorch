@@ -4,12 +4,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
 import datetime
+import cv2
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.autograd import Variable
 
 from collections import OrderedDict
 global glb_grad_at
+glb_t_grad = {}
+glb_s_grad = {}
 
 class AverageMeter(object):
     def __init__(self):
@@ -210,16 +213,13 @@ def CAM(feature_conv, weight_softmax, class_idx):
     return cam
 
 
-def save_grad_at(module, grad_in, grad_out):
-    global glb_grad_at
-    # print 'executing save_grad_at, grad_in shape : {}, grad_out shape : {}'.format(grad_in.shape, grad_out.shape)
+def save_grad_s(module, grad_in, grad_out):
+    global glb_s_grad
+    glb_s_grad[id(module)] = grad_out[0].detach()
 
-    # TODO: absolute value? clamp(relu)?
-    grad_at = torch.sum(torch.abs(grad_out[0].detach()), dim=1)
-    # grad_at = torch.camp(grad_at, min=0.0)
-
-    # not grad_at[0] because batch_size can be more than 1
-    glb_grad_at[id(module)] = grad_at
+def save_grad_t(module, grad_in, grad_out):
+    global glb_t_grad
+    glb_t_grad[id(module)] = grad_out[0].detach()
 
 
 def training(
@@ -579,6 +579,65 @@ def training_KD(
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
+def getGcam(feature, grad):
+    w = F.adaptive_avg_pool2d(grad, 1)
+    # print 'weight shape after avgpool {}'.format(w.shape)
+    # gcam = torch.sum(grad, dim = (2,3), keepdim = True)
+    gcam = torch.mul(w, feature)
+    gcam = torch.sum(gcam, dim = 1)
+
+    gcam = torch.clamp(gcam, min = 0.0)
+    for gc in gcam:
+        gc -= gc.min()
+        gc /= gc.max()
+
+    return gcam
+
+
+def write_gradcam(gcam, image, writer,epoch, mode = 't'):
+    """
+        gcam = gradcam of 3 images
+        image = 3 images
+        writer = summarywriter
+        epoch = epochs
+    """
+    # write three images to tensorboard
+    raw_imgs = []
+    gcams = []
+    h,w = (227,227)
+
+    for im, gc in zip(image, gcam):
+        gc = gc.detach().cpu().numpy()
+        im = im.detach().permute(1,2,0).cpu().numpy()
+        im += np.array([123.68, 116.779, 103.939])
+        im[im < 0] = 0
+        im[im > 255.] = 255.
+        gc = cv2.resize(gc, (w, h))
+        gc = gc * 255.0
+        gc = cv2.applyColorMap(np.uint8(gc), cv2.COLORMAP_JET)
+        gc = gc.astype(np.float) + im.astype(np.float)
+        gc = (gc / gc.max()) * 255.0
+        b, g, r = cv2.split(im)
+        im = cv2.merge([r,g,b])
+        raw_imgs.append(torch.from_numpy(im))
+        b, g, r = cv2.split(gc)
+        gc = cv2.merge([r,g,b])
+        gcams.append(torch.from_numpy(gc))
+    gcams = [gc.permute(2,0,1) for gc in gcams]
+    gcams = torch.stack(gcams, dim=0)
+    gcams = vutils.make_grid(gcams, normalize=True, scale_each=True)
+    raw_imgs = [im.permute(2,0,1) for im in raw_imgs]
+    raw_imgs = torch.stack(raw_imgs, dim=0)
+    raw_imgs = vutils.make_grid(raw_imgs, normalize=True, scale_each=True)
+    if mode == 't':
+        writer.add_image('raw_imgs', raw_imgs, epoch + 1)
+        writer.add_image('t_Gradcams', gcams, epoch + 1)
+    elif mode == 's' :
+        writer.add_image('s_Gradcams', gcams, epoch + 1)
+    else:
+        writer.add_image('raw_imgs', raw_imgs, epoch + 1)
+        writer.add_image('sr_gradcams', gcams, epoch + 1)
+
 
 def training_Gram_KD(
     teacher_net,
@@ -604,9 +663,11 @@ def training_Gram_KD(
     hint,
     at_enabled,
     at_ratio,
-    save
+    save,
+    description
     ):
     global glb_grad_at
+    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), description)))
     glb_grad_at = OrderedDict()
 
     ce_loss = nn.CrossEntropyLoss()
@@ -624,80 +685,30 @@ def training_Gram_KD(
 
     teacher_net.eval()
 
-    if hint:
-        print('1st stage Training using Gram loss')
-        for epoch in range(40):
-            loss = 0.
-            decay_lr(optimizer, epoch, init_lr, lr_decay)
-            net.train()
-
-            for x, x_low, y in training_generator:
-                x = x.cuda().float()
-                x_low = x_low.cuda().float()
-                y = y.cuda() - 1
-
-                _, t_features = teacher_net(x)
-
-                t_conv1 = t_features['conv1'].detach()
-                t_conv2 = t_features['conv2'].detach()
-                t_conv3 = t_features['conv3'].detach()
-                t_conv4 = t_features['conv4'].detach()
-                t_conv5 = t_features['conv5'].detach()
-
-                optimizer.zero_grad()
-
-                _, s_features = net(x_low)
-
-                s_conv1 = s_features['conv1']
-                s_conv2 = s_features['conv2']
-                s_conv3 = s_features['conv3']
-                s_conv4 = s_features['conv4']
-                s_conv5 = s_features['conv5']
-
-                loss = []
-
-                # feature regression method
-                if 1 in gram_features:
-                    loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
-                if 2 in gram_features:
-                    loss.append(mse_loss(s_conv2, t_conv2) * style_weight)
-                if 3 in gram_features:
-                    loss.append(mse_loss(s_conv3, t_conv3) * style_weight)
-                if 4 in gram_features:
-                    loss.append(mse_loss(s_conv4, t_conv4) * style_weight)
-                if 5 in gram_features:
-                    loss.append(mse_loss(s_conv5, t_conv5) * style_weight)
-
-                # print loss
-
-                loss = torch.mean(torch.stack(loss))
-
-                # print loss.data.cpu()
-
-                if loss == float('inf') or loss != loss:
-                    logger.error('Loss is infinity, stop!')
-                    return
-
-                loss.backward()
-                optimizer.step()
-            print('In 1st stage, epoch : {}, total loss : {}'.format(
-                    epoch, loss.data.cpu()))
 
     # To calculate and save gradient attetion, register backward_hook
-    teacher_net.conv1.register_backward_hook(save_grad_at)
-    teacher_net.conv2.register_backward_hook(save_grad_at)
-    teacher_net.conv3.register_backward_hook(save_grad_at)
-    teacher_net.conv4.register_backward_hook(save_grad_at)
-    teacher_net.conv5.register_backward_hook(save_grad_at)
+    teacher_net.conv1.register_backward_hook(save_grad_t)
+    teacher_net.conv2.register_backward_hook(save_grad_t)
+    teacher_net.conv3.register_backward_hook(save_grad_t)
+    teacher_net.conv4.register_backward_hook(save_grad_t)
+    teacher_net.conv5.register_backward_hook(save_grad_t)
+
+    net.conv1.register_backward_hook(save_grad_s)
+    net.conv2.register_backward_hook(save_grad_s)
+    net.conv3.register_backward_hook(save_grad_s)
+    net.conv4.register_backward_hook(save_grad_s)
+    net.conv5.register_backward_hook(save_grad_s)
+
 
     for epoch in range(epochs):
+        show = False
         loss= 0.
         decay_lr(optimizer, epoch, init_lr, lr_decay)
         kdloss.reset()
         gtloss.reset()
         convloss.reset()
         net.train()
-        for x, x_low, y in training_generator:
+        for x, x_low, y, path in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
             x = Variable(x, requires_grad = True)
@@ -725,12 +736,30 @@ def training_Gram_KD(
 
             # Network output
             student, s_features = net(x_low)
+            net.zero_grad()
+            student.backward(gradient=one_hot_y, retain_graph=True)
 
-            s_conv1 = s_features['conv1']
-            s_conv2 = s_features['conv2']
-            s_conv3 = s_features['conv3']
-            s_conv4 = s_features['conv4']
-            s_conv5 = s_features['conv5']
+
+            s_conv1 = s_features['conv1'].detach()
+            s_conv2 = s_features['conv2'].detach()
+            s_conv3 = s_features['conv3'].detach()
+            s_conv4 = s_features['conv4'].detach()
+            s_conv5 = s_features['conv5'].detach()
+
+            t_gradCam = getGcam(t_conv5, glb_t_grad[id(teacher_net.conv5)])
+            s_gradCam = getGcam(s_conv5, glb_s_grad[id(net.conv5)])
+
+            #Visualize gradcams
+            if show is False:
+                t_images = x[:3]
+                s_images = x_low[:3]
+                t_cams = t_gradCam[:3]
+                s_cams = s_gradCam[:3]
+                write_gradcam(t_cams, t_images, writer, epoch)
+                write_gradcam(s_cams, s_images, writer, epoch,mode='s')
+                show =True
+
+
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   F.softmax(teacher / temperature, dim=1))    # teacher's hook is called in every loss.backward()
@@ -744,29 +773,29 @@ def training_Gram_KD(
             GRAM_loss = .0
 
             # feature regression with attention
-            if hint == False:
-                if str(1) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv1, t_conv1)
-                    GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv1)])
-                    # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio)
-                if str(2) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv2, t_conv2)
-                    GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv2)])
-                    # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio)
-                if str(3) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv3, t_conv3)
-                    GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv3)])
-                    # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio)
-                if str(4) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv4, t_conv4)
-                    GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
-                    # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
-                if str(5) in gram_features:
-                    GRAM_loss += mse_loss(s_conv5, t_conv5)
-                    # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
-                    # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
-                # GRAM_loss *= style_weight
-
+            # if hint == False:
+                # if str(1) in gram_features:
+                    # # GRAM_loss += mse_loss(s_conv1, t_conv1)
+                    # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv1)])
+                    # # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio)
+                # if str(2) in gram_features:
+                    # # GRAM_loss += mse_loss(s_conv2, t_conv2)
+                    # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv2)])
+                    # # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio)
+                # if str(3) in gram_features:
+                    # # GRAM_loss += mse_loss(s_conv3, t_conv3)
+                    # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv3)])
+                    # # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio)
+                # if str(4) in gram_features:
+                    # # GRAM_loss += mse_loss(s_conv4, t_conv4)
+                    # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
+                    # # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
+                # if str(5) in gram_features:
+                    # GRAM_loss += mse_loss(s_conv5, t_conv5)
+                    # # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
+                    # # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
+                # # GRAM_loss *= style_weight
+            GRAM_loss = mse_loss(t_gradCam, s_gradCam)
             loss = KD_loss + GT_loss + GRAM_loss
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
@@ -781,6 +810,7 @@ def training_Gram_KD(
             # else:
             #     print KD_loss.data.cpu(), GT_loss.data.cpu()
 
+            net.zero_grad()
             loss.backward()
             optimizer.step()
         net.eval()

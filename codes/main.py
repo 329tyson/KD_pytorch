@@ -184,6 +184,7 @@ if __name__ == '__main__':
                     args.at_enabled,
                     args.at_ratio,
                     args.save,
+                    args.message
                 )
             # else for gram_enabled
             else:
