@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from preprocess import *
 from train import write_gradcam
+from tqdm import tqdm
 glb_grad_at = {}
 
 
@@ -136,14 +137,16 @@ def main():
         ldr= []
         sr = []
         hdr= []
+        guide = []
         show = False
-        for x, x_low, y, path in train_loader:
+        train_iter = tqdm(train_loader)
+        for x, x_low, y, path in train_iter:
             x_low = x_low.cuda().float()
             x = x.cuda().float()
             y = y.cuda() - 1
             model.zero_grad()
             net.zero_grad()
-            sr_image = model(x_low)
+            sr_image, additive = model(x_low)
             optimizer.zero_grad()
 
             output, features = net(x)
@@ -161,24 +164,28 @@ def main():
                     hdr.append(x[i])
                     ldr.append(x_low[i])
                     sr.append(sr_image[i])
+                    guide.append(additive[i])
                 gcam = gcams[:3]
                 write_gradcam(gcam, sr, writer, epoch, mode ='sr')
                 torch.stack(hdr, dim=0)
                 torch.stack(ldr, dim=0)
                 torch.stack(sr, dim=0)
+                torch.stack(guide, dim=0)
                 hdr = vutils.make_grid(hdr, normalize=True, scale_each=True)
                 ldr = vutils.make_grid(ldr, normalize=True, scale_each=True)
                 sr = vutils.make_grid(sr, normalize=True, scale_each=True)
+                guide = vutils.make_grid(guide, normalize=True, scale_each=True)
 
                 writer.add_image('HDR', hdr, epoch + 1)
                 writer.add_image('LDR', ldr, epoch + 1)
                 writer.add_image('SR', sr, epoch + 1)
+                writer.add_image('GUIDE', guide, epoch + 1)
                 show =True
             loss = torch.sub(features['conv5'], sr_features['conv5'])
             loss = torch.mul(loss, loss)
             loss = torch.mul(loss, torch.unsqueeze(gcams, dim=1))
             loss = torch.mean(loss)
-            loss += mse_loss(sr_image, x) * 0.5
+            loss += mse_loss(sr_image, x) * 0.1
 
             # loss = torch.mul(mse_loss(sr_image, x), torch.unsqueeze(res_gcams, dim=1))
             loss.backward()

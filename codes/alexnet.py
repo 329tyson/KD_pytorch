@@ -15,8 +15,11 @@ class SRLayer(nn.Module):
         # f2 = 5x5, 32
         # f3 = 5x5, 3
         # element-wise addition
-        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
+        self.bn1 = nn.BatchNorm2d(3)
+        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=3, padding=1))
+        self.bn2 = nn.BatchNorm2d(64)
         self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
+        self.bn3 = nn.BatchNorm2d(32)
         self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
 
         self.relu1 = nn.ReLU(inplace=True)
@@ -34,16 +37,21 @@ class SRLayer(nn.Module):
     def forward(self, x):
         residual = x
 
+        x = self.bn1(x)
         x = self.sconv1(x)
         x = self.relu1(x)
 
+        x = self.bn2(x)
         x = self.sconv2(x)
         x = self.relu2(x)
 
+        x = self.bn3(x)
         x = self.sconv3(x)
+        result = x
+
         x = torch.add(residual, x)
 
-        return x
+        return x, result
 
     def init_layer(self, layer):
         layer.weight.data.normal_(mean=0.0, std=0.001)
@@ -235,3 +243,14 @@ class RACNN(nn.Module):
                     jj += 1
                     if k.requires_grad:
                         yield k
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
+        self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
+        self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
+
+    def forward(self, x):
+        validity = self.model(x)
+        return validity
