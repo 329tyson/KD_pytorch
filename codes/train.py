@@ -591,6 +591,7 @@ def getGcam(feature, grad):
         gc -= gc.min()
         gc /= gc.max()
 
+    gcam[gcam<0.5] = 0.
     return gcam
 
 
@@ -746,15 +747,18 @@ def training_Gram_KD(
             s_conv4 = s_features['conv4'].detach()
             s_conv5 = s_features['conv5'].detach()
 
-            t_gradCam = getGcam(t_conv5, glb_t_grad[id(teacher_net.conv5)])
-            s_gradCam = getGcam(s_conv5, glb_s_grad[id(net.conv5)])
+            t_gcam4 = getGcam(t_conv4, glb_t_grad[id(teacher_net.conv4)])
+            s_gcam4 = getGcam(s_conv4, glb_s_grad[id(net.conv4)])
+
+            t_gcam5 = getGcam(t_conv5, glb_t_grad[id(teacher_net.conv5)])
+            s_gcam5 = getGcam(s_conv5, glb_s_grad[id(net.conv5)])
 
             #Visualize gradcams
             if show is False:
                 t_images = x[:3]
                 s_images = x_low[:3]
-                t_cams = t_gradCam[:3]
-                s_cams = s_gradCam[:3]
+                t_cams = t_gcam5[:3]
+                s_cams = s_gcam5[:3]
                 write_gradcam(t_cams, t_images, writer, epoch)
                 write_gradcam(s_cams, s_images, writer, epoch,mode='s')
                 show =True
@@ -772,30 +776,7 @@ def training_Gram_KD(
 
             GRAM_loss = .0
 
-            # feature regression with attention
-            # if hint == False:
-                # if str(1) in gram_features:
-                    # # GRAM_loss += mse_loss(s_conv1, t_conv1)
-                    # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv1)])
-                    # # GRAM_loss += attendedFeature_loss(s_conv1, t_conv1, style_weight, mse_loss, at_ratio)
-                # if str(2) in gram_features:
-                    # # GRAM_loss += mse_loss(s_conv2, t_conv2)
-                    # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv2)])
-                    # # GRAM_loss += attendedFeature_loss(s_conv2, t_conv2, style_weight, mse_loss, at_ratio)
-                # if str(3) in gram_features:
-                    # # GRAM_loss += mse_loss(s_conv3, t_conv3)
-                    # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv3)])
-                    # # GRAM_loss += attendedFeature_loss(s_conv3, t_conv3, style_weight, mse_loss, at_ratio)
-                # if str(4) in gram_features:
-                    # # GRAM_loss += mse_loss(s_conv4, t_conv4)
-                    # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv4)])
-                    # # GRAM_loss += attendedFeature_loss(s_conv4, t_conv4, style_weight, mse_loss, at_ratio)
-                # if str(5) in gram_features:
-                    # GRAM_loss += mse_loss(s_conv5, t_conv5)
-                    # # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio, glb_grad_at[id(teacher_net.conv5)])
-                    # # GRAM_loss += attendedFeature_loss(s_conv5, t_conv5, style_weight, mse_loss, at_ratio)
-                # # GRAM_loss *= style_weight
-            GRAM_loss = mse_loss(t_gradCam, s_gradCam)
+            GRAM_loss = (mse_loss(t_gcam5, s_gcam5)  + mse_loss(t_gcam4, s_gcam4)) * 169
             loss = KD_loss + GT_loss + GRAM_loss
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))

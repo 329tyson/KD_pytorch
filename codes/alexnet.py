@@ -90,16 +90,6 @@ class AlexNet(nn.Module):
         x = self.relu4(x)
 
         x = self.conv5(x)
-        residual = x
-        # ResConv Start
-        if self.res:
-            x = self.res_conv1(x)
-            x = self.res_relu1(x)
-            x = self.res_conv2(x)
-            x = self.res_relu2(x)
-            x = self.res_conv3(x)
-            x = torch.add(residual,x)
-        # ResConv End
         conv5 = x
         x = self.relu5(x)
         x = self.pool5(x)

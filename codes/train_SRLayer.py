@@ -79,7 +79,7 @@ def compute_gradCAM(feature, grad):
     for gc in gcam:
         gc -= gc.min()
         gc /= gc.max()
-    gcam[gcam < 0.5] = 0.
+    # gcam[gcam < 0.5] = 0.
     return gcam
 
 def main():
@@ -141,6 +141,7 @@ def main():
             x_low = x_low.cuda().float()
             x = x.cuda().float()
             y = y.cuda() - 1
+            model.zero_grad()
             net.zero_grad()
             sr_image = model(x_low)
             optimizer.zero_grad()
@@ -160,9 +161,6 @@ def main():
                     hdr.append(x[i])
                     ldr.append(x_low[i])
                     sr.append(sr_image[i])
-                # hdr = x[:3]
-                # ldr = x_low[:3]
-                # sr = sr_image[:3]
                 gcam = gcams[:3]
                 write_gradcam(gcam, sr, writer, epoch, mode ='sr')
                 torch.stack(hdr, dim=0)
@@ -176,11 +174,13 @@ def main():
                 writer.add_image('LDR', ldr, epoch + 1)
                 writer.add_image('SR', sr, epoch + 1)
                 show =True
-
             loss = torch.sub(features['conv5'], sr_features['conv5'])
             loss = torch.mul(loss, loss)
             loss = torch.mul(loss, torch.unsqueeze(gcams, dim=1))
             loss = torch.mean(loss)
+            loss += mse_loss(sr_image, x) * 0.5
+
+            # loss = torch.mul(mse_loss(sr_image, x), torch.unsqueeze(res_gcams, dim=1))
             loss.backward()
             optimizer.step()
 
