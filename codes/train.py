@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 import torchvision.utils as vutils
 import datetime
 from tqdm import tqdm
@@ -59,6 +60,11 @@ def decay_lr(optimizer, epoch, init_lr, decay_period):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     optimizer.param_groups[7]['lr'] = lr * 10
+
+
+def decay_lr_fc8(optimizer, epoch, init_lr, decay_period):
+    lr = init_lr * (0.1 ** (epoch // decay_period))
+    optimizer.param_groups[0]['lr'] = lr * 10
 
 
 def decay_lr_vgg(optimizer, epoch, init_lr, decay_period):
@@ -775,6 +781,7 @@ def training_Gram_KD(
 
     teacher_net.eval()
 
+    """
     if hint:
         print('1st stage Training using Gram loss')
         for epoch in range(40):
@@ -808,15 +815,15 @@ def training_Gram_KD(
                 loss = []
 
                 # feature regression method
-                if 1 in gram_features:
+                if str(1) in gram_features:
                     loss.append(mse_loss(s_conv1, t_conv1) * style_weight)
-                if 2 in gram_features:
+                if str(2) in gram_features:
                     loss.append(mse_loss(s_conv2, t_conv2) * style_weight)
-                if 3 in gram_features:
+                if str(3) in gram_features:
                     loss.append(mse_loss(s_conv3, t_conv3) * style_weight)
-                if 4 in gram_features:
+                if str(4) in gram_features:
                     loss.append(mse_loss(s_conv4, t_conv4) * style_weight)
-                if 5 in gram_features:
+                if str(5) in gram_features:
                     loss.append(mse_loss(s_conv5, t_conv5) * style_weight)
 
                 # print loss
@@ -833,6 +840,7 @@ def training_Gram_KD(
                 optimizer.step()
             print('In 1st stage, epoch : {}, total loss : {}'.format(
                     epoch, loss.data.cpu()))
+    """
 
     # To calculate and save gradient attetion, register backward_hook
     """
@@ -880,11 +888,12 @@ def training_Gram_KD(
             teacher_net.zero_grad()
             teacher.backward(gradient=one_hot_y, retain_graph=True)
 
-            t_conv1 = t_features['conv1'].detach()
-            t_conv2 = t_features['conv2'].detach()
-            t_conv3 = t_features['conv3'].detach()
-            t_conv4 = t_features['conv4'].detach()
-            t_conv5 = t_features['conv5'].detach()
+            if str(1) in gram_features: t_conv1 = t_features['conv1'].detach()
+            if str(2) in gram_features: t_conv2 = t_features['conv2'].detach()
+            if str(3) in gram_features: t_conv3 = t_features['conv3'].detach()
+            if str(4) in gram_features: t_conv4 = t_features['conv4'].detach()
+            if str(5) in gram_features: t_conv5 = t_features['conv5'].detach()
+            if str(7) in gram_features: t_fc7 = t_features['fc7'].detach()
 
             # # Calculate gradient && Backpropagate
             # optimizer.zero_grad()
@@ -898,11 +907,12 @@ def training_Gram_KD(
             # Calculate gradient && Backpropagate
             optimizer.zero_grad()
 
-            s_conv1 = s_features['conv1']
-            s_conv2 = s_features['conv2']
-            s_conv3 = s_features['conv3']
-            s_conv4 = s_features['conv4']
-            s_conv5 = s_features['conv5']
+            if str(1) in gram_features: s_conv1 = s_features['conv1']
+            if str(2) in gram_features: s_conv2 = s_features['conv2']
+            if str(3) in gram_features: s_conv3 = s_features['conv3']
+            if str(4) in gram_features: s_conv4 = s_features['conv4']
+            if str(5) in gram_features: s_conv5 = s_features['conv5']
+            if str(7) in gram_features: s_fc7 = s_features['fc7']
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   # F.softmax(teacher / temperature, dim=1))    # teacher's hook is called in every loss.backward()
@@ -942,6 +952,8 @@ def training_Gram_KD(
                     c_at = glb_c_grad_at[id(teacher_net.pool5)]
                     s_at = calculate_s_at(t_conv5.detach(), s_conv5.detach(), glb_s_grad_at[id(teacher_net.pool5)])
                     GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, mse_loss, c_at, s_at, c, s)
+                if str(7) in gram_features:
+                    GRAM_loss += mse_loss(s_fc7, t_fc7)
 
                 GRAM_loss *= style_weight
 
@@ -1025,7 +1037,7 @@ def training_Gram_KD(
                   .format(acc_validation*100, hit_validation, num_validation))
 
             if max_accuracy < acc_validation: max_accuracy = acc_validation
-            if acc_validation < 0.01 :
+            if acc_validation < 0.01:
                 logger.error('This combination seems not working, stop training')
                 exit(1)
 
@@ -1271,5 +1283,475 @@ def training_attention_SR(
                 torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
 
             writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
+
+def training_FSR(
+    net,
+    generator,
+    discriminator,
+    optimizer_G,
+    optimizer_D,
+    focal_loss_r,
+    num_classes,
+    init_lr,
+    lr_decay,
+    epochs,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    low_ratio,
+    result_path,
+    logger,
+    vgg_gap,
+    save
+    ):
+    ce_loss = nn.CrossEntropyLoss()
+    mse_loss = nn.MSELoss(reduce=False)
+    pdist = torch.nn.modules.distance.PairwiseDistance()
+
+    max_accuracy = 0.
+
+    if low_ratio != 0:
+        model_name = 'Student_LOW_{}x{}'.format(str(low_ratio), str(low_ratio)) + '_lr:' + str(init_lr) \
+                    + '_decay:' + str(lr_decay) + '_r:' + str(focal_loss_r)
+    else:
+        print('are you serious ...?')
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
+
+    new_fc8 = nn.Linear(4096, num_classes)
+    new_fc8.cuda()
+    new_fc8.load_state_dict(net.fc8.state_dict())
+    new_fc8.train()
+
+    net.eval()
+
+    optimizer = optim.SGD(
+        [{'params': new_fc8.parameters(), 'lr': init_lr * 10}],
+        momentum=0.9,
+        weight_decay=0.0005)
+
+    gtloss = AverageMeter()
+    genloss = AverageMeter()
+    disloss = AverageMeter()
+
+    for epoch in range(epochs):
+
+        gtloss.reset()
+        genloss.reset()
+        disloss.reset()
+
+        decay_lr_fc8(optimizer, epoch, init_lr, lr_decay)
+
+        new_fc8.train()
+        generator.train()
+        discriminator.train()
+
+        for x, x_low, y in training_generator:
+            # To CUDA tensors
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+            y = y.cuda() - 1
+
+            _, t_feature = net(x)
+            high_embedding = t_feature['fc7'].detach()
+
+            _, s_feature = net(x_low)
+            low_embedding = s_feature['fc7'].detach()
+
+            optimizer_G.zero_grad()
+            optimizer_D.zero_grad()
+
+            ### Train generative network(G)
+            # freeze D
+            for param in discriminator.parameters():
+                param.requires_grad = False
+
+            sr_embedding = generator(low_embedding)
+
+            focal_loss = pdist(sr_embedding, high_embedding) ** focal_loss_r
+            loss_G = -torch.mean(discriminator(sr_embedding)) + torch.mean(focal_loss)
+            loss_G.backward()
+
+            ### Train discriminative network(D)
+            for param in discriminator.parameters():
+                param.requires_grad = True
+
+            sr_embedding = sr_embedding.detach()
+
+            loss_D = torch.mean(discriminator(sr_embedding)) - torch.mean(discriminator(high_embedding))
+            loss_D.backward()
+
+            optimizer_G.step()
+            optimizer_D.step()
+
+            disloss.update(loss_D.item(), x_low.size(0))
+            genloss.update(loss_G.item(), x_low.size(0))
+
+            ### Train last fc layer to calculate class logit
+            # optimizer.zero_grad()
+            #
+            # output = new_fc8(sr_embedding)
+            # loss = ce_loss(output, y)
+            #
+            # loss.backward()
+            # optimizer.step()
+            # gtloss.update(loss.item(), x_low.size(0))
+
+            if isNaN(loss_D.item()) or isNaN(loss_G.item()) is True:
+                logger.error("This combination failed due to the NaN|inf loss value")
+                exit(1)
+
+            # print (
+            #     '[Training][GT_loss : {:.3f}][GEN_loss : {:.3f}][DISC_LOSS : {:.3f}]').format(
+            #     gtloss.avg, genloss.avg, disloss.avg)
+
+        generator.eval()
+        discriminator.eval()
+
+        writer.add_scalars('losses', {'GEN_loss': genloss.avg,
+                                      'GT_loss': gtloss.avg,
+                                      'DISC_loss': disloss.avg,
+                                      }, epoch + 1)
+
+        if (epoch + 1) % 10:
+            logger.debug('[EPOCH{}][Training][GT_loss : {:.3f}][GEN_loss : {:.3f}][DISC_LOSS : {:.3f}]'
+                         .format(epoch+1, gtloss.avg, genloss.avg, disloss.avg))
+
+        else:
+            new_fc8.train()
+            for i in range(10):
+                for x, x_low, y in training_generator:
+                    # To CUDA tensors
+                    x_low = x_low.cuda().float()
+                    y = y.cuda() - 1
+
+                    _, s_feature = net(x_low)
+                    low_embedding = s_feature['fc7'].detach()
+                    sr_embedding = generator(low_embedding).detach()
+                    output = new_fc8(sr_embedding)
+
+                    optimizer.zero_grad()
+                    loss = ce_loss(output, y)
+                    loss.backward()
+                    optimizer.step()
+
+                    gtloss.update(loss.item(), x_low.size(0))
+                    # print '[Training][GT_loss : {:.3f}]'.format(gtloss.avg)
+            new_fc8.eval()
+
+            # Test
+            hit_training = 0
+            hit_validation = 0
+            for x_low, y in eval_trainset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                # output, _ = net(x_low)
+                _, feature = net(x_low)
+                output = new_fc8(generator(feature['fc7']))
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
+
+            count_success = 0
+            count_failure = 0
+            count_show = 3
+            success = []
+            failure = []
+            for x_low, y in eval_validationset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                # output, _ = net(x_low)
+                _, feature = net(x_low)
+                output = new_fc8(generator(feature['fc7']))
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                        if count_success > count_show :
+                            continue
+                        success.append(x_low[0])
+                        count_success += 1
+                    elif count_failure < count_show + 1:
+                        failure.append(x_low[0])
+                        count_failure += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
+
+            if ten_crop is True:
+                torch.stack(success, dim=0)
+                torch.stack(failure, dim=0)
+                success = vutils.make_grid(success, normalize=True, scale_each=True)
+                failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+
+                writer.add_image('Success', success, epoch + 1)
+                writer.add_image('Failure', failure, epoch + 1)
+            # Trace
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('[EPOCH{}][Training][GT_loss : {:.3f}][GEN_loss : {:.3f}][DISC_LOSS : {:.3f}]'
+                         .format(epoch+1, gtloss.avg, genloss.avg, disloss.avg))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                         .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                         .format(acc_validation*100, hit_validation, num_validation))
+            if max_accuracy < acc_validation:
+                max_accuracy = acc_validation
+            if save:
+                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+            writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
+
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
+
+def training_Disc(
+    teacher_net,
+    net,
+    optimizer,
+    discriminator,
+    optimizer_D,
+    init_lr,
+    lr_decay,
+    epochs,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    low_ratio,
+    result_path,
+    logger,
+    vgg_gap,
+    save
+    ):
+    ce_loss = nn.CrossEntropyLoss()
+    mse_loss = nn.MSELoss(reduce=False)
+
+    max_accuracy = 0.
+
+    if low_ratio != 0:
+        model_name = 'Student_LOW_{}x{}'.format(str(low_ratio), str(low_ratio)) + '_lr:' + str(init_lr) \
+                    + '_decay:' + str(lr_decay)
+    else:
+        print('are you serious ...?')
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
+
+    gtloss = AverageMeter()
+    disloss = AverageMeter()
+    genloss = AverageMeter()
+
+    teacher_net.eval()
+
+    # for x, x_low, y in training_generator:
+    #     x = x.cuda().float()
+    #     x_low = x_low.cuda().float()
+    #     y = y.cuda() - 1
+    #     _, t_feature = teacher_net(x)
+    #     high_embedding = t_feature['fc7'].detach()
+    #     _, s_feature = net(x_low)
+    #     low_embedding = s_feature['fc7'].detach()
+    #
+    #     optimizer_D.zero_grad()
+    #     ### Train discriminative network(D)
+    #     loss_D = torch.mean(discriminator(low_embedding)) - torch.mean(discriminator(high_embedding))
+    #     loss_D.backward()
+    #
+    #     optimizer.step()
+    #     optimizer_D.step()
+    #     print loss_D.item()
+    #
+    #     disloss.update(loss_D.item(), x_low.size(0))
+    #     if loss_D.item() < -1:
+    #         break
+
+    for epoch in range(epochs):
+
+        gtloss.reset()
+        genloss.reset()
+        disloss.reset()
+
+        decay_lr(optimizer, epoch, init_lr, lr_decay)
+
+        net.train()
+        discriminator.train()
+
+        for x, x_low, y in training_generator:
+            # To CUDA tensors
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+            y = y.cuda() - 1
+
+            _, t_feature = teacher_net(x)
+            high_embedding = t_feature['fc7'].detach()
+
+            output, s_feature = net(x_low)
+            low_embedding = s_feature['fc7']
+
+            # freeze D
+            for param in discriminator.parameters():
+                param.requires_grad = False
+
+            optimizer.zero_grad()
+
+            # feature_loss = torch.mean(torch.sum(mse_loss(low_embedding, high_embedding), dim=1))
+            feature_loss = torch.mean(mse_loss(low_embedding, high_embedding))
+            good_loss = torch.mean(discriminator(low_embedding))
+            ce = ce_loss(output, y)
+
+            loss_G = feature_loss + good_loss + ce
+            loss_G.backward()
+
+            genloss.update(loss_G.item(), x_low.size(0))
+            gtloss.update(ce.item(), x_low.size(0))
+
+            ### Train discriminative network(D)
+            for param in discriminator.parameters():
+                param.requires_grad = True
+
+            for p in discriminator.parameters():
+                p.data.clamp_(-0.01, 0.01)
+
+            optimizer_D.zero_grad()
+
+            high_embedding = high_embedding.detach()
+            low_embedding = low_embedding.detach()
+            loss_D = torch.mean(discriminator(low_embedding)) - torch.mean(discriminator(high_embedding))
+            loss_D.backward()
+
+            optimizer.step()
+            optimizer_D.step()
+
+            disloss.update(loss_D.item(), x_low.size(0))
+
+            if isNaN(loss_D.item()) or isNaN(loss_G.item()) is True:
+                logger.error("This combination failed due to the NaN|inf loss value")
+                exit(1)
+
+            # print (
+            #     '[Training][GT_loss : {:.3f}][GEN_loss : {:.3f}][DISC_LOSS : {:.3f}]').format(
+            #     ce.item(), loss_G.item(), loss_D.item())
+
+        discriminator.eval()
+        net.eval()
+
+        writer.add_scalars('losses', {'GEN_loss': genloss.avg,
+                                      'GT_loss': gtloss.avg,
+                                      'DISC_loss': disloss.avg,
+                                      }, epoch + 1)
+
+        if (epoch + 1) % 10:
+            logger.debug('[EPOCH{}][Training][GT_loss : {:.3f}][DISC_LOSS : {:.3f}]'
+                         .format(epoch+1, gtloss.avg, disloss.avg))
+
+        else:
+            # Test
+            hit_training = 0
+            hit_validation = 0
+            for x_low, y in eval_trainset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x_low)
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
+
+            count_success = 0
+            count_failure = 0
+            count_show = 3
+            success = []
+            failure = []
+            for x_low, y in eval_validationset_generator:
+                # To CUDA tensors
+                x_low = torch.squeeze(x_low)
+                x_low = x_low.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x_low)
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                        if count_success > count_show :
+                            continue
+                        success.append(x_low[0])
+                        count_success += 1
+                    elif count_failure < count_show + 1:
+                        failure.append(x_low[0])
+                        count_failure += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
+
+            if ten_crop is True:
+                torch.stack(success, dim=0)
+                torch.stack(failure, dim=0)
+                success = vutils.make_grid(success, normalize=True, scale_each=True)
+                failure = vutils.make_grid(failure, normalize=True, scale_each=True)
+
+                writer.add_image('Success', success, epoch + 1)
+                writer.add_image('Failure', failure, epoch + 1)
+            # Trace
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('[EPOCH{}][Training][GT_loss : {:.3f}][GEN_loss : {:.3f}][DISC_LOSS : {:.3f}]'
+                         .format(epoch+1, gtloss.avg, genloss.avg, disloss.avg))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                         .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                         .format(acc_validation*100, hit_validation, num_validation))
+            if max_accuracy < acc_validation:
+                max_accuracy = acc_validation
+            if save:
+                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+            writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
+
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))

@@ -51,13 +51,14 @@ class SRLayer(nn.Module):
         return layer
 
 class AlexNet(nn.Module):
-    def __init__(self, keep_prob, num_classes, skip_layer,
+    def __init__(self, keep_prob, num_classes, skip_layer, save_layer=None,
                  weights_path='DEFAULT', res=None):
         super(AlexNet, self).__init__()
         # Parse input arguments into class variables
         self.NUM_CLASSES = num_classes
         self.KEEP_PROB = keep_prob
         self.SKIP_LAYER = skip_layer
+        self.SAVE_LAYER = save_layer
         self.var_dict = {}
 
         # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
@@ -101,17 +102,26 @@ class AlexNet(nn.Module):
         x = self.dropout6(x)
 
         x = self.fc7(x)
+        fc7 = x
         x = self.relu7(x)
         x = self.dropout7(x)
 
         x = self.fc8(x)
 
         feature = {}
-        feature['conv1'] = conv1
-        feature['conv2'] = conv2
-        feature['conv3'] = conv3
-        feature['conv4'] = conv4
-        feature['conv5'] = conv5
+        if self.SAVE_LAYER:
+            if str(1) in self.SAVE_LAYER:
+                feature['conv1'] = conv1
+            if str(2) in self.SAVE_LAYER:
+                feature['conv2'] = conv2
+            if str(3) in self.SAVE_LAYER:
+                feature['conv3'] = conv3
+            if str(4) in self.SAVE_LAYER:
+                feature['conv4'] = conv4
+            if str(5) in self.SAVE_LAYER:
+                feature['conv5'] = conv5
+            if str(7) in self.SAVE_LAYER:
+                feature['fc7'] = fc7
 
         return x, feature
 

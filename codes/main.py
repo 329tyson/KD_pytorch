@@ -2,10 +2,14 @@ from argparser import parse
 from alexnet import AlexNet
 from VGG_gap import VGG_gap
 from alexnet import RACNN
+from fsr_gan import FSR_Generator
+from fsr_gan import FSR_Discriminator
 from train import training
 from train import training_KD
 from train import training_Gram_KD
 from train import training_attention_SR
+from train import training_FSR
+from train import training_Disc
 from save_gradient import calculate_attention
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
@@ -84,7 +88,7 @@ if __name__ == '__main__':
             weight_decay=0.0005)
 
     else:
-        net = AlexNet(0.5, args.classes, ['fc8'])
+        net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.gram_features)
         load_weight(net, args.pretrain_path)
 
         optimizer= optim.SGD(
@@ -107,7 +111,56 @@ if __name__ == '__main__':
         for arg in vars(args):
             print('\t',arg, getattr(args, arg))
 
-    if args.kd_enabled is True:
+    if args.fsr_enabled:
+        print('Training Feature Super Resolution GAN model')
+        print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
+
+        generator = FSR_Generator()
+        discriminator = FSR_Discriminator()
+
+        optimizer_G = optim.Adam(generator.parameters(), lr=args.lr)
+        optimizer_D = optim.Adam(discriminator.parameters(), lr=args.lr)
+
+        generator.cuda()
+        discriminator.cuda()
+
+        try:
+            train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
+                args.dataset,
+                args.batch,
+                args.annotation_train,
+                args.annotation_val,
+                args.data,
+                args.low_ratio,
+                args.ten_batch_eval,
+                args.verbose,
+                args.fsr_enabled)
+        except ValueError:
+            print('inapproriate dataset, please put cub or stanford')
+
+        logger = getlogger(args.log_dir + '/FSR-GAN_{}_LOW_{}'
+                           .format(args.dataset, str(args.low_ratio)))
+        logger.debug(args.message)
+        for arg in vars(args):
+            logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+        logger.debug(
+            '\nTraining FSR-GAN model, Low resolution of {}x{}'.format(str(args.low_ratio),
+                                                                       str(args.low_ratio)))
+        logger.debug('\t on ' + args.dataset.upper() + ' dataset, with hyper parameters above\n\n')
+        # training_FSR(net, generator, discriminator, optimizer_G, optimizer_D, args.focal_loss_r,
+                     # args.classes, args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
+                     # train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
+                     # args.low_ratio, args.result, logger, args.vgg_gap, args.save)
+        teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
+        load_weight(teacher_net, args.pretrain_path)
+        teacher_net.cuda()
+
+        training_Disc(teacher_net, net, optimizer, discriminator, optimizer_D,
+                     args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
+                     train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
+                     args.low_ratio, args.result, logger, args.vgg_gap, args.save)
+
+    elif args.kd_enabled is True:
         if args.low_ratio == 0:
             print('Invalid argument, choose low resolution (50 | 25)')
         else:
@@ -115,7 +168,7 @@ if __name__ == '__main__':
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
             if not args.vgg_gap:
-                teacher_net = AlexNet(0.5, args.classes, ['fc8'])
+                teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
                 # for single gpu
                 load_weight(teacher_net, args.pretrain_path)
 
@@ -142,7 +195,7 @@ if __name__ == '__main__':
 
             # To execute folloing calculate_grad*, batch_size should be 1 and img_path should be contained in dataloader results
             # Use only for visualization
-            # calculate_grad(teacher_net, train_loader)
+            # calculate_attention(teacher_net, net, train_loader, "./img_results/residual/", 0)
             # calculate_gradCAM(teacher_net, train_loader)
             # raise Stop
 
@@ -226,7 +279,7 @@ if __name__ == '__main__':
             print('\nTraining Attention SR model')
             print('\t on ',args.dataset,' with hyper parameters above')
             print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
-            teacher_net = AlexNet(0.5, args.classes, ['fc8'])
+            teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
             load_weight(teacher_net, args.pretrain_path)
             net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path = args.pretrain_path, sr_weights_path = args.sr_pretrain_path)
             net.cuda()

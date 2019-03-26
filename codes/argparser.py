@@ -51,7 +51,7 @@ def parse():
         'Initial learning rate (divided by 10 while training by lr scheduler)')
     parser.add_argument(
         '--lr_decay',
-        default=20,
+        default=300,
         type=int,
         help='Learning rate decaying period'
     )
@@ -59,7 +59,7 @@ def parse():
         '--batch', default=111, type=int, help='Batch Size')
     parser.add_argument(
         '--epochs',
-        default=100,
+        default=1000,
         type=int,
         help='Number of total epochs to run')
     parser.add_argument(
@@ -185,6 +185,15 @@ def parse():
     parser.add_argument(
         '--sr_pretrain_path',
         default='NONE', type=str, help='Pretrained model (.pth)'
+    )
+    parser.add_argument(
+        '--fsr_enabled',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--focal_loss_r',
+        default=1.0,
+        type=float
     )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)

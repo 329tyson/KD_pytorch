@@ -74,7 +74,8 @@ def remove_hook(handlers):
 def write_gradient(filename, at, image):
     h, w, _ = image.shape
     data = at.data.cpu().numpy()
-    print '[', filename, '] min, max : ', data.min(), data.max()
+    # print '[', filename, '] min, max : ', data.min(), data.max()
+    print '[ {} ] {:.3f}, {:.3f}, {:.3f}'.format(filename.split('/')[-1], data.min(), data.mean(), data.max())
     data -= data.min()
     data /= data.max()
     data = cv2.resize(data, (w,h), interpolation=cv2.INTER_NEAREST)
@@ -112,8 +113,8 @@ def calculate_attention(
     #
     # feature_name = ['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
 
-    teacher_layer = [teacher_net.pool5]
-    student_layer = [student_net.pool5]
+    teacher_layer = [teacher_net.conv5]
+    student_layer = [student_net.conv5]
 
     feature_name = ['conv5']
 
@@ -184,7 +185,7 @@ def calculate_attention(
         s.backward(gradient=one_hot_y)
 
         for i in range(len(teacher_layer)):
-            file = filepath + filename + '_' + str(epoch) + 'th'
+            # file = filepath + filename + '_' + str(epoch) + 'th'
 
             teacher_at = glb_spatial_grad[id(teacher_layer[i])][img_index]
             student_at = glb_spatial_grad[id(student_layer[i])][img_index]
@@ -198,8 +199,10 @@ def calculate_attention(
             t_mul = teacher_at * t_activation
             mul = teacher_at * res_activation
 
-            t_act = torch.sqrt(torch.mean(torch.abs(t_features[feature_name[i]]), dim=1)).detach()
-            s_act = torch.sqrt(torch.mean(torch.abs(s_features[feature_name[i]]), dim=1)).detach()
+            t_act = torch.mean(torch.abs(t_features[feature_name[i]]), dim=1).detach()
+            s_act = torch.mean(torch.abs(s_features[feature_name[i]]), dim=1).detach()
+            # t_act = torch.sqrt(torch.mean(torch.abs(t_features[feature_name[i]]), dim=1)).detach()
+            # s_act = torch.sqrt(torch.mean(torch.abs(s_features[feature_name[i]]), dim=1)).detach()
             # t_act = t_act / np.amax(t_act)
             # s_act = s_act / np.amax(s_act)
             res_act = torch.clamp(t_act - s_act, min=0.0)
@@ -210,6 +213,8 @@ def calculate_attention(
             print mul.shape
 
             for j in range(bn):
+                file = filepath + filenames[j] + '_' + str(epoch) + 'th'
+
                 write_gradient(file + "_grad_t_" + feature_name[i] + ".png", teacher_at[j], raw_imgs[j])
                 write_gradient(file + "_grad_s_" + feature_name[i] + ".png", student_at[j], low_raw_imgs[j])
                 write_gradient(file + "_grad_r_" + feature_name[i] + ".png", residual_at[j], raw_imgs[j])
@@ -217,7 +222,7 @@ def calculate_attention(
                 write_gradient(file + "_act_t_" + feature_name[i] + ".png", t_activation[j], raw_imgs[j])
                 write_gradient(file + "_act_s_" + feature_name[i] + ".png", s_activation[j], low_raw_imgs[j])
                 write_gradient(file + "_act_r_" + feature_name[i] + ".png", res_activation[j], low_raw_imgs[j])
-                write_gradient(file + "_act_rXt_" + feature_name[i] + ".png", weighted_activation[j], low_raw_imgs[j])
+                write_gradient(file + "_act_rXt_" + feature_name[i] + ".png", weighted_activation[j], low_raw_imgs[j]) # highlight teacher's high point
 
                 write_gradient(file + "_act_t_actXtgrad_" + feature_name[i] + ".png", t_mul[j], raw_imgs[j])
                 write_gradient(file + "_act_r_actXtgrad_" + feature_name[i] + ".png", mul[j], low_raw_imgs[j])
@@ -229,7 +234,7 @@ def calculate_attention(
 
         # To save all gradient of training images, uncomment following lines
         img_index += 1
-        if img_index > 5:
+        if img_index > 1:
             break
 
     # net.eval()
