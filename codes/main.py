@@ -155,7 +155,7 @@ if __name__ == '__main__':
         load_weight(teacher_net, args.pretrain_path)
         teacher_net.cuda()
 
-        training_Disc(teacher_net, net, optimizer, discriminator, optimizer_D, args.w_clip
+        training_Disc(teacher_net, net, optimizer, discriminator, optimizer_D, args.w_clip,
                      args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
                      args.low_ratio, args.result, logger, args.vgg_gap, args.save)
