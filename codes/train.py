@@ -14,6 +14,7 @@ import cv2
 from collections import OrderedDict
 global glb_s_grad_at
 global glb_c_grad_at
+global glb_elem_grad_at
 
 
 class AverageMeter(object):
@@ -136,22 +137,48 @@ def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight
 
     return loss
 
+def attention_gram_loss(s_feature, t_feature, at, mse_loss, spatial):
+    bn, c, h, w= t_feature.shape
+
+    t_vec = t_feature.view(bn, c, -1)
+    s_vec = s_feature.view(bn, c, -1)
+
+    if spatial:
+        at = F.normalize(at.view(bn,-1), p=1, dim=1)    # shape: [bn, h*w]
+        at = at / torch.max(at, dim=1)[0].unsqueeze(1)
+
+        at = at.unsqueeze(1)
+        at = at.expand(-1, c, -1) # shape : [bn, c, h*w]
+        # print at.shape, torch.min(at).data.cpu(), torch.mean(at).data.cpu(), torch.max(at).data.cpu()
+
+        t_vec = t_vec * at
+        s_vec = s_vec * at
+
+    t_gram = torch.bmm(t_vec, t_vec.permute((0,2,1)))
+    s_gram = torch.bmm(s_vec, s_vec.permute((0,2,1)))
+
+    t_gram = t_gram.div(h*w*c)
+    s_gram = s_gram.div(h*w*c)
+
+    loss = mse_loss(s_gram, t_gram)
+    return loss
+
 
 def calculate_s_at(t_feature, s_feature, grad_at):
     bn, _, h, w = t_feature.shape
-    t_at = torch.mean(torch.abs(t_feature), dim=1).view(bn, -1) # abs is meaningless, if relu is applied 
+    # t_at = torch.mean(torch.abs(t_feature), dim=1).view(bn, -1) # abs is meaningless, if relu is applied 
     # t_at = torch.sqrt(t_at)
     # t_at = t_at / torch.max(t_at, dim=1)[0].unsqueeze(1)
-    print 'teacher at:', torch.min(t_at).data.cpu(), torch.mean(t_at).data.cpu(), torch.max(t_at).data.cpu()
+    # print 'teacher at:', torch.min(t_at).data.cpu(), torch.mean(t_at).data.cpu(), torch.max(t_at).data.cpu()
 
-    s_at = torch.mean(torch.abs(s_feature.detach()), dim=1).view(bn, -1)
+    # s_at = torch.mean(torch.abs(s_feature.detach()), dim=1).view(bn, -1)
     # s_at = torch.sqrt(s_at)
     # s_at = s_at / torch.max(s_at, dim=1)[0].unsqueeze(1)
-    print 'student at:', torch.min(s_at).data.cpu(), torch.mean(s_at).data.cpu(), torch.max(s_at).data.cpu()
+    # print 'student at:', torch.min(s_at).data.cpu(), torch.mean(s_at).data.cpu(), torch.max(s_at).data.cpu()
 
-    r_at = torch.clamp(t_at - s_at, min=0.0).view(bn, h, w)
-    r_at = torch.sqrt(r_at)
-    at = r_at
+    # r_at = torch.clamp(t_at - s_at, min=0.0).view(bn, h, w)
+    # r_at = torch.sqrt(r_at)
+    # at = r_at
     # print "r_at: ", torch.min(at).data.cpu(), torch.max(at).data.cpu(), torch.mean(at).data.cpu()
     
     # at = grad_at * t_at.view(bn, h, w) # torch.sqrt(grad_at * at.view(bn, h, w))
@@ -162,6 +189,8 @@ def calculate_s_at(t_feature, s_feature, grad_at):
     
     # at = (at * t_at).view(bn, h, w)
     # at = torch.sqrt(at)
+
+    at = grad_at
 
     return at
 
@@ -237,9 +266,6 @@ def attendedFeature_loss(s_feature, t_feature, balance_weight, loss_fn, ratio, a
     # t_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(t_feature, index)])
     # s_feature = torch.cat([torch.index_select(a, 1, i).unsqueeze(0) for a, i in zip(s_feature, index)])
 
-    # KD_loss = nn.KLDivLoss()(F.log_softmax(s_feature / 3, dim=1),
-                                     # F.softmax(t_feature / 3, dim=1))    # teacher's hook is called in every loss.backward()
-    # loss = torch.mul(KD_loss, 9)
     # loss = loss_fn(s_feature, t_feature)
 
     diff = torch.sub(t_feature, s_feature)
@@ -265,7 +291,7 @@ def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, channel, spati
     if channel:
         c_at = F.normalize(c_at, p=1, dim=1)    # shape: [bn, c]
         c_at = c_at / torch.max(c_at, dim=1)[0].unsqueeze(1)
-        print 'c_at after norm : ', torch.min(c_at).data.cpu(), torch.mean(c_at.view(bn, -1)).data.cpu(), torch.max(c_at).data.cpu()
+        # print 'c_at after norm : ', torch.min(c_at).data.cpu(), torch.mean(c_at.view(bn, -1)).data.cpu(), torch.max(c_at).data.cpu()
 
     loss = loss_fn(s_feature, t_feature)
     loss = loss.view(bn, c, -1)
@@ -280,6 +306,20 @@ def Feature_cs_at_loss(s_feature, t_feature, loss_fn, c_at, s_at, channel, spati
         loss = s_at * loss
     loss = torch.mean(loss)
 
+    return loss
+
+def Feature_elem_at_loss(s_feature, t_feature, loss_fn, at):
+    bn, c, h, w = s_feature.shape
+
+    print 'elem at : ', torch.min(at).data.cpu(), torch.mean(at).data.cpu(), torch.max(at).data.cpu()
+    at = at.view(bn, -1)
+    at = at / torch.max(at, dim=1)[0].unsqueeze(1)
+    at = at.view(bn, c, h, w)
+    print 'elem at after norm: ', torch.min(at).data.cpu(), torch.mean(at).data.cpu(), torch.max(at).data.cpu()
+
+    loss = loss_fn(s_feature, t_feature)
+    loss = loss * at
+    loss = torch.mean(loss)
     return loss
 
 
@@ -311,7 +351,7 @@ def CAM(feature_conv, weight_softmax, class_idx):
 
     return cam
 
-
+"""
 def save_grad_at(module, grad_in, grad_out):
     global glb_s_grad_at
     global glb_c_grad_at
@@ -327,10 +367,16 @@ def save_grad_at(module, grad_in, grad_out):
     glb_s_grad_at[id(module)] = grad_at
 
     # Channel Attention
-    # grad_at = torch.mean(torch.abs(grad_out[0].detach()).view(bn, c, -1), dim=2)
-    grad_at = torch.abs(torch.mean(grad_out[0].detach().view(bn, c, -1), dim=2))
+    grad_at = torch.mean(torch.abs(grad_out[0].detach()).view(bn, c, -1), dim=2)
+    # grad_at = torch.abs(torch.mean(grad_out[0].detach().view(bn, c, -1), dim=2))
 
     glb_c_grad_at[id(module)] = grad_at
+"""
+def save_grad_at(module, grad_in, grad_out):
+    global glb_elem_grad_at
+    bn, c, h, w = grad_out[0].shape
+
+    glb_elem_grad_at[id(module)] = torch.abs(grad_out[0].detach())
 
 
 def compute_gradCAM(feature, grad):
@@ -761,6 +807,9 @@ def training_Gram_KD(
     glb_s_grad_at = OrderedDict()
     glb_c_grad_at = OrderedDict()
 
+    global glb_elem_grad_at
+    glb_elem_grad_at = OrderedDict()
+
     ce_loss = nn.CrossEntropyLoss()
     # mse_loss = nn.MSELoss()
     mse_loss = nn.MSELoss(reduce=False)
@@ -929,29 +978,47 @@ def training_Gram_KD(
             if hint == False:
                 if str(1) in gram_features:
                     # GRAM_loss += mse_loss(s_conv1, t_conv1)
-                    c_at = glb_c_grad_at[id(teacher_net.pool1)]
-                    s_at = calculate_s_at(t_conv1.detach(), s_conv1.detach(), glb_s_grad_at[id(teacher_net.pool1)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv1, t_conv1, mse_loss, c_at, s_at, c, s)
+
+                    # c_at = glb_c_grad_at[id(teacher_net.pool1)]
+                    #s_at = calculate_s_at(t_conv1.detach(), s_conv1.detach(), glb_s_grad_at[id(teacher_net.pool1)])
+                    # GRAM_loss += Feature_cs_at_loss(s_conv1, t_conv1, mse_loss, c_at, s_at, c, s)
+
+                    at = glb_elem_grad_at[id(teacher_net.pool1)]
+                    GRAM_loss += Feature_elem_at_loss(s_conv1, t_conv1, mse_loss, at)
+
+                    # GRAM_loss += attention_gram_loss(s_conv1, t_conv1, s_at, mse_loss, s)
                 if str(2) in gram_features:
                     # GRAM_loss += mse_loss(s_conv2, t_conv2)
-                    c_at = glb_c_grad_at[id(teacher_net.pool2)]
-                    s_at = calculate_s_at(t_conv2.detach(), s_conv2.detach(), glb_s_grad_at[id(teacher_net.pool2)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv2, t_conv2, mse_loss, c_at, s_at, c, s)
+                    # c_at = glb_c_grad_at[id(teacher_net.pool2)]
+                    # s_at = calculate_s_at(t_conv2.detach(), s_conv2.detach(), glb_s_grad_at[id(teacher_net.pool2)])
+                    # GRAM_loss += Feature_cs_at_loss(s_conv2, t_conv2, mse_loss, c_at, s_at, c, s)
+                    # GRAM_loss += attention_gram_loss(s_conv2, t_conv2, s_at, mse_loss, s)
+                    at = glb_elem_grad_at[id(teacher_net.pool2)]
+                    GRAM_loss += Feature_elem_at_loss(s_conv2, t_conv2, mse_loss, at)
                 if str(3) in gram_features:
                     # GRAM_loss += mse_loss(s_conv3, t_conv3)
-                    c_at = glb_c_grad_at[id(teacher_net.relu3)]
-                    s_at = calculate_s_at(t_conv3.detach(), s_conv3.detach(), glb_s_grad_at[id(teacher_net.relu3)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv3, t_conv3, mse_loss, c_at, s_at, c, s)
+                    # c_at = glb_c_grad_at[id(teacher_net.relu3)]
+                    # s_at = calculate_s_at(t_conv3.detach(), s_conv3.detach(), glb_s_grad_at[id(teacher_net.relu3)])
+                    # GRAM_loss += Feature_cs_at_loss(s_conv3, t_conv3, mse_loss, c_at, s_at, c, s)
+                    # GRAM_loss += attention_gram_loss(s_conv3, t_conv3, s_at, mse_loss, s)
+                    at = glb_elem_grad_at[id(teacher_net.relu3)]
+                    GRAM_loss += Feature_elem_at_loss(s_conv3, t_conv3, mse_loss, at)
                 if str(4) in gram_features:
                     # GRAM_loss += mse_loss(s_conv4, t_conv4)
-                    c_at = glb_c_grad_at[id(teacher_net.relu4)]
-                    s_at = calculate_s_at(t_conv4.detach(), s_conv4.detach(), glb_s_grad_at[id(teacher_net.relu4)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv4, t_conv4, mse_loss, c_at, s_at, c, s)
+                    # c_at = glb_c_grad_at[id(teacher_net.relu4)]
+                    # s_at = calculate_s_at(t_conv4.detach(), s_conv4.detach(), glb_s_grad_at[id(teacher_net.relu4)])
+                    # GRAM_loss += Feature_cs_at_loss(s_conv4, t_conv4, mse_loss, c_at, s_at, c, s)
+                    # GRAM_loss += attention_gram_loss(s_conv4, t_conv4, s_at, mse_loss, s)
+                    at = glb_elem_grad_at[id(teacher_net.relu4)]
+                    GRAM_loss += Feature_elem_at_loss(s_conv4, t_conv4, mse_loss, at)
                 if str(5) in gram_features:
                     # GRAM_loss += mse_loss(s_conv5, t_conv5)
-                    c_at = glb_c_grad_at[id(teacher_net.pool5)]
-                    s_at = calculate_s_at(t_conv5.detach(), s_conv5.detach(), glb_s_grad_at[id(teacher_net.pool5)])
-                    GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, mse_loss, c_at, s_at, c, s)
+                    # c_at = glb_c_grad_at[id(teacher_net.pool5)]
+                    # s_at = calculate_s_at(t_conv5.detach(), s_conv5.detach(), glb_s_grad_at[id(teacher_net.pool5)])
+                    # GRAM_loss += Feature_cs_at_loss(s_conv5, t_conv5, mse_loss, c_at, s_at, c, s)
+                    # GRAM_loss += attention_gram_loss(s_conv5, t_conv5, s_at, mse_loss, s)
+                    at = glb_elem_grad_at[id(teacher_net.pool5)]
+                    GRAM_loss += Feature_elem_at_loss(s_conv5, t_conv5, mse_loss, at)
                 if str(7) in gram_features:
                     GRAM_loss += mse_loss(s_fc7, t_fc7)
 
