@@ -195,6 +195,11 @@ def parse():
         default=1.0,
         type=float
     )
+    parser.add_argument(
+        '--w_clip',
+        default=0.01,
+        type=float
+    )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)

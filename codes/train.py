@@ -1605,6 +1605,7 @@ def training_Disc(
     optimizer,
     discriminator,
     optimizer_D,
+    w_clip,
     init_lr,
     lr_decay,
     epochs,
@@ -1707,7 +1708,7 @@ def training_Disc(
                 param.requires_grad = True
 
             for p in discriminator.parameters():
-                p.data.clamp_(-0.01, 0.01)
+                p.data.clamp_(-w_clip, w_clip)
 
             optimizer_D.zero_grad()
 
