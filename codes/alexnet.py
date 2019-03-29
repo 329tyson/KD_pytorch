@@ -7,7 +7,6 @@ import datetime
 import logging
 
 
-
 class SRLayer(nn.Module):
     def __init__(self):
         super(SRLayer, self).__init__()
@@ -50,9 +49,26 @@ class SRLayer(nn.Module):
         layer.bias.data.fill_(0)
         return layer
 
+
+class conv1x1(nn.Module):
+    def __init__(self, planes, out_planes=None, is_bn=0, stride=1):
+        super(conv1x1, self).__init__()
+        self.conv = nn.Conv2d(planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False)
+        self.is_bn = is_bn
+
+        if is_bn:
+            self.bn = nn.BatchNorm2d(out_planes)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.is_bn:
+            x = self.bn(x)
+        return x
+
+
 class AlexNet(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer, save_layer=None,
-                 weights_path='DEFAULT', res=None):
+                 weights_path='DEFAULT', residual_layer=None, is_bn=0):
         super(AlexNet, self).__init__()
         # Parse input arguments into class variables
         self.NUM_CLASSES = num_classes
@@ -62,37 +78,52 @@ class AlexNet(nn.Module):
         self.var_dict = {}
 
         # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
-        self.load=True
+        self.load = True
+        self.residuals = [0, 0, 0, 0, 0]
 
         # print(self.weights_dict.keys())
 
         self.create_network()
+        if residual_layer:
+            self.create_residual(residual_layer, is_bn)
 
 
     def forward(self, x):
-        x = self.conv1(x)
-        conv1 = x
-        x = self.relu1(x)
+        conv1 = self.conv1(x)
+        # Error: size mismatch b.t.w conv1 & res ((128, 96, 55, 55) & (128, 96, 57, 57))
+        # if self.residuals[0]:
+        #     res = self.res_adapter1(x)
+        #     print conv1.shape, res.shape
+        #     conv1 = conv1 + res
+        x = self.relu1(conv1)
         x = self.norm1(x)
         x = self.pool1(x)
 
-        x = self.conv2(x)
-        conv2 = x
-        x = self.relu2(x)
+        conv2 = self.conv2(x)
+        if self.residuals[1]:
+            res = self.res_adapter2(x)
+            conv2 = conv2 + res
+        x = self.relu2(conv2)
         x = self.norm2(x)
         x = self.pool2(x)
 
-        x = self.conv3(x)
-        conv3 = x
-        x = self.relu3(x)
+        conv3 = self.conv3(x)
+        if self.residuals[2]:
+            res = self.res_adapter3(x)
+            conv3 = conv3 + res
+        x = self.relu3(conv3)
 
-        x = self.conv4(x)
-        conv4 = x
-        x = self.relu4(x)
+        conv4 = self.conv4(x)
+        if self.residuals[3]:
+            res = self.res_adapter4(x)
+            conv4 = conv4 + res
+        x = self.relu4(conv4)
 
-        x = self.conv5(x)
-        conv5 = x
-        x = self.relu5(x)
+        conv5 = self.conv5(x)
+        if self.residuals[4]:
+            res = self.res_adapter5(x)
+            conv5 = conv5 + res
+        x = self.relu5(conv5)
         x = self.pool5(x)
 
         x = x.view(x.size(0), 256 * 6 * 6)
@@ -194,6 +225,25 @@ class AlexNet(nn.Module):
         print('fc8', self.fc8)
         print('\n')
 
+
+    def create_residual(self, residual_layer, is_bn):
+        if str(1) in residual_layer:
+            self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
+            self.residuals[0] = 1
+        if str(2) in residual_layer:
+            self.res_adapter2 = conv1x1(96, 256, is_bn)
+            self.residuals[1] = 1
+        if str(3) in residual_layer:
+            self.res_adapter3 = conv1x1(256, 384, is_bn)
+            self.residuals[2] = 1
+        if str(4) in residual_layer:
+            self.res_adapter4 = conv1x1(384, is_bn)
+            self.residuals[3] = 1
+        if str(5) in residual_layer:
+            self.res_adapter5 = conv1x1(384, 256, is_bn)
+            self.residuals[4] = 1
+
+
     def init_layer(self, name, net):
         nn.init.xavier_uniform_(net.weight)
         nn.init.constant_(net.bias, 0.0)
@@ -232,7 +282,7 @@ class RACNN(nn.Module):
                     elif 'fc' in lname:
                         converted[lname + ".weight"] = torch.from_numpy(val[0].transpose(1, 0))
                         converted[lname + ".bias"] = torch.from_numpy(val[1])
-                self.classificationLayer.load_state_dict(converted, strict=Ture)
+                self.classificationLayer.load_state_dict(converted, strict=True)
 
             else:
                 alex_weights = torch.load(alex_weights_path)

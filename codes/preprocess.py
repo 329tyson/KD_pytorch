@@ -23,6 +23,13 @@ def load_weight(net, pretrained_path, fit=True):
         net.load_state_dict(converted, strict = fit)
     else:
         weight = torch.load(pretrained_path)
+
+        # preserve residual adapter parameters
+        ori_params = net.state_dict().copy()
+        for i in ori_params:
+            if 'res' in i:
+                weight[i] = ori_params[i]
+
         net.load_state_dict(weight, strict = fit)
 
 def generate_dataset(
