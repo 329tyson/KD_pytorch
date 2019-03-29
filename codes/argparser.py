@@ -57,7 +57,7 @@ def parse():
     )
     parser.add_argument(
         '--wd',
-        decault=0.0005,
+        default=0.0005,
         type=float,
         help='weight decay for the alexnet model'
     )
