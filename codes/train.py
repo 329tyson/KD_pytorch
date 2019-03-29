@@ -137,6 +137,7 @@ def calculate_Gram_loss(s_feature, t_feature, norm_type, patch_num, style_weight
 
     return loss
 
+
 def attention_gram_loss(s_feature, t_feature, at, mse_loss, spatial):
     bn, c, h, w= t_feature.shape
 
@@ -372,6 +373,7 @@ def save_grad_at(module, grad_in, grad_out):
 
     glb_c_grad_at[id(module)] = grad_at
 """
+
 def save_grad_at(module, grad_in, grad_out):
     global glb_elem_grad_at
     bn, c, h, w = grad_out[0].shape
@@ -420,6 +422,9 @@ def training(
                      + str(init_lr) + '_decay:' + str(lr_decay)
     else:
         model_name = 'Teacher_HIGH' + '_lr:' + str(init_lr) + '_decay:' + str(lr_decay)
+
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -554,6 +559,9 @@ def training_KD(
                     + '_decay:' + str(lr_decay) + '_T:' + str(temperature)
     else:
         print('are you serious ...?')
+
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -824,6 +832,9 @@ def training_Gram_KD(
                     + '_decay' + str(lr_decay) + '_T:' + str(temperature) + '_feat:' + gram_features
     else:
         print('are you serious ...?')
+
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -1154,6 +1165,9 @@ def training_attention_SR(
     else:
         print('are you serious ...?')
 
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
+
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
     model_name = '/' + model_name
 
@@ -1388,6 +1402,9 @@ def training_FSR(
                     + '_decay:' + str(lr_decay) + '_r:' + str(focal_loss_r)
     else:
         print('are you serious ...?')
+
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -1632,6 +1649,9 @@ def training_Disc(
     else:
         print('are you serious ...?')
 
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter'
+
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
 
@@ -1823,3 +1843,4 @@ def training_Disc(
 
     logger.debug('Finished Training\n')
     logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
