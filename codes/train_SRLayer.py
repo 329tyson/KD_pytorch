@@ -52,9 +52,16 @@ def get_aruments():
     parser.add_argument("--feature", type=int, default=0)
     parser.add_argument("--decay", type=int, default=20)
     parser.add_argument("--message", type=str, default='SR_Pretrain')
+    parser.add_argument("--gradcam", default=False, action = 'store_true')
+    parser.add_argument("--l2", default=False, action= 'store_true')
+    parser.add_argument("--image_norm", default=False, action= 'store_true')
+    parser.add_argument("--regression_features",default=None )
 
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(verbose=True)
+    parser.set_defaults(gradcam=False)
+    parser.set_defaults(l2 = False)
+    parser.set_defaults(image_norm = False)
 
     return parser.parse_args()
 
@@ -90,7 +97,7 @@ def main():
         name = 'conv' + str(args.feature)
         model_name = 'SR_Pretrain_perceptual:' + str(args.feature) + '_lr:' + str(args.lr) + '_decay:' + str(args.decay)
 
-    writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), args.message)))
+    writer = SummaryWriter('_'.join(('SR/',datetime.datetime.now().strftime('%Y-%m-%d'), args.message)))
     # writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
@@ -105,68 +112,139 @@ def main():
         args.low_ratio,
         args.ten_batch_eval,
         args.verbose,
-        True)
+        is_KD = True,
+        image_norm = args.image_norm)
 
-    model = alexnet.SRLayer()
+    net = alexnet.SRLayer()
+    dis = alexnet.Discriminator()
     mse_loss = nn.MSELoss()
 
-    model = model.cuda()
+    net = net.cuda()
+    dis = dis.cuda()
     mse_loss = mse_loss.cuda()
 
 
     print("===> Setting Optimizer")
-    optimizer = optim.SGD(
-        [{'params': model.sconv1.weight, 'lr': 1.0 * args.lr},
-         {'params': model.sconv1.bias, 'lr': 0.1 * args.lr},
-         {'params': model.sconv2.weight, 'lr': 1.0 * args.lr},
-         {'params': model.sconv2.bias, 'lr': 0.1 * args.lr},
-         {'params': model.sconv3.weight, 'lr': 0.01 * args.lr},
-         {'params': model.sconv3.bias, 'lr': 0.01 * args.lr}],
-        momentum=0.9, weight_decay=0)
+    # g_optimizer = optim.Adam(
+        # [{'params': net.sconv1.weight, 'lr': 1.0 * args.lr},
+         # {'params': net.sconv1.bias, 'lr': 0.1 * args.lr},
+         # {'params': net.sconv2.weight, 'lr': 1.0 * args.lr},
+         # {'params': net.sconv2.bias, 'lr': 0.1 * args.lr},
+         # {'params': net.sconv3.weight, 'lr': 0.01 * args.lr},
+         # {'params': net.sconv3.bias, 'lr': 0.001 * args.lr}])
+    d_optimizer = optim.Adam(
+        [{'params': dis.parameters(), 'lr':0.1 * args.lr}])
+    g_optimizer = optim.Adam(
+        [{'params': net.parameters(), 'lr':0.1 * args.lr}])
 
-    net = alexnet.AlexNet(0.5, 200, ['fc8'])
-    load_weight(net, args.pretrain_path)
-    net.cuda()
-    net.conv5.register_backward_hook(save_grad)
-    net.eval()
-    model.train()
+    teacher = alexnet.AlexNet(0.5, 200, ['fc8'])
+    load_weight(teacher, args.pretrain_path)
+    teacher.cuda()
 
+    teacher.conv5.register_backward_hook(save_grad)
+    teacher.eval()
+    net.train()
+    dis.train()
+
+    GLoss = AverageMeter()
+    DLoss = AverageMeter()
+    MSE = AverageMeter()
+    PLoss = AverageMeter()
+
+    print 'Feature regression for convs : {}'.format(args.regression_features)
     for epoch in range(args.epochs):
-        adjust_learning_rate(optimizer, epoch, args)
+        adjust_learning_rate(g_optimizer, epoch, args)
+        adjust_learning_rate(d_optimizer, epoch, args)
+        GLoss.reset()
+        DLoss.reset()
+        MSE.reset()
+        PLoss.reset()
         loss_value = 0
+        G_loss_value = 0
+        D_loss_value = 0
+        d_loss = 0
         ldr= []
         sr = []
         hdr= []
         guide = []
         show = False
-        train_iter = tqdm(train_loader)
-        for x, x_low, y, path in train_iter:
+        train_iter = tqdm(enumerate(train_loader))
+        for i, (x, x_low, y, path) in train_iter:
             x_low = x_low.cuda().float()
             x = x.cuda().float()
             y = y.cuda() - 1
-            model.zero_grad()
+
             net.zero_grad()
-            sr_image, additive = model(x_low)
-            optimizer.zero_grad()
+            teacher.zero_grad()
+            dis.zero_grad()
+            g_optimizer.zero_grad()
+            d_optimizer.zero_grad()
 
-            output, features = net(x)
-            one_hot_y = torch.zeros(output.shape).float().cuda()
-            for i in range(output.shape[0]):
-                one_hot_y[i][y[i]] = 1.0
 
-            output.backward(gradient = one_hot_y, retain_graph = True)
+            output, features = teacher(x)
 
-            s_output, sr_features = net(sr_image)
+
+            ###################################################
+            # Update Generator                                #
+            ###################################################
+            for p in dis.parameters():
+                p.requires_grad = False
+            for p in net.parameters():
+                p.requires_grad = True
+
+            if args.gradcam:
+                one_hot_y = torch.zeros(output.shape).float().cuda()
+                for i in range(output.shape[0]):
+                    one_hot_y[i][y[i]] = 1.0
+
+                output.backward(gradient = one_hot_y, retain_graph = True)
+                gcams = compute_gradCAM(features['conv5'].detach(), glb_grad_at[id(teacher.conv5)])
+            sr_image, additive = net(x_low)
+            val_false = dis(sr_image)
+
+            s_output, sr_features = teacher(sr_image)
             # gradient-oriented SR
-            gcams = compute_gradCAM(features['conv5'].detach(), glb_grad_at[id(net.conv5)])
+            for conv in args.regression_features.split():
+                tconv = features['conv' + str(conv)]
+                sconv = sr_features['conv' + str(conv)]
+                ploss = mse_loss(tconv, sconv)
+            # ploss = torch.sub(features['conv5'], sr_features['conv5'])
+            # ploss = torch.mul(ploss, ploss)
+            # if args.gradcam:
+                # ploss = torch.mul(ploss, torch.unsqueeze(gcams, dim =1))
+            # ploss = torch.mean(ploss)
+            if args.l2:
+                mseloss = mse_loss(sr_image, x)
+                ploss += mseloss
+
+            d_loss_g = -torch.mean(torch.log(val_false)) * 0.001 + ploss
+            # d_loss_g = -torch.mean(torch.log(val_false)) * 0.001
+            d_loss_g.backward()
+
+            ###################################################
+            # Update Discriminator                            #
+            ###################################################
+            for p in dis.parameters():
+                p.requires_grad = True
+
+            for p in net.parameters():
+                p.requires_grad = False
+
+            sr_image = sr_image.detach()
+            val_true = dis(x)
+            val_false = dis(sr_image)
+            ones = torch.ones(4,1,1,1).cuda()
+            d_loss_d = -torch.mean(torch.log(val_true)) * 0.001 - torch.mean(torch.log(torch.sub(ones ,val_false))) * 0.001
+            d_loss_d.backward()
             if show is False:
                 for i in range(3):
                     hdr.append(x[i])
                     ldr.append(x_low[i])
                     sr.append(sr_image[i])
                     guide.append(additive[i])
-                gcam = gcams[:3]
-                write_gradcam(gcam, sr, writer, epoch, mode ='sr')
+                if args.gradcam:
+                    gcam = gcams[:3]
+                    write_gradcam(gcam, x, writer, epoch, mode ='sr')
                 torch.stack(hdr, dim=0)
                 torch.stack(ldr, dim=0)
                 torch.stack(sr, dim=0)
@@ -179,31 +257,56 @@ def main():
                 writer.add_image('HDR', hdr, epoch + 1)
                 writer.add_image('LDR', ldr, epoch + 1)
                 writer.add_image('SR', sr, epoch + 1)
-                writer.add_image('GUIDE', guide, epoch + 1)
+                writer.add_image('GUIDANCE', guide, epoch + 1)
                 show =True
-            loss = torch.sub(features['conv5'], sr_features['conv5'])
-            loss = torch.mul(loss, loss)
-            loss = torch.mul(loss, torch.unsqueeze(gcams, dim=1))
-            loss = torch.mean(loss)
-            loss += mse_loss(sr_image, x) * 0.1
+            # Perceptual loss
+            # grad_loss = torch.sub(features['conv5'], sr_features['conv5'])
+            # grad_loss = torch.mul(grad_loss, grad_loss)
+            # grad_loss = torch.mul(grad_loss, torch.unsqueeze(gcams, dim=1))
+            # grad_loss = torch.mean(grad_loss)
+            # loss = d_loss + grad_loss
+            d_loss = d_loss_d + d_loss_g
+            # loss += mseloss
+            # print "===> Epoch[{}/{}]: GradCAMloss: {:3} G_loss: {:3} D_loss: {:3}".format(epoch, args.epochs, grad_loss.item(), d_loss_g.item(), d_loss_d.item())
 
-            # loss = torch.mul(mse_loss(sr_image, x), torch.unsqueeze(res_gcams, dim=1))
-            loss.backward()
-            optimizer.step()
+            loss  = d_loss + ploss
+            if loss == float('inf') or loss != loss:
+                exit(1)
+            g_optimizer.step()
+            d_optimizer.step()
 
             loss_value += loss.data.cpu()
+            PLoss.update(ploss.item(), x.size(0))
+            # MSE.update(mseloss.item(), x.size(0))
+            GLoss.update(d_loss_g.item(), x.size(0))
+            DLoss.update(d_loss_d.item(), x.size(0))
+            # train_iter.set_description("===> Epoch[{}/{}]: GradCAMloss: {:3} G_loss: {:3} D_loss: {:3}".format(epoch, args.epochs, grad_loss.item(), d_loss_g.item(), d_loss_d.item()))
+            # train_iter.set_description("===> Epoch[{}/{}]: G_loss: {:3} D_loss: {:3} MSEloss: {:3}".format(epoch, args.epochs,  d_loss_g.item(), d_loss_d.item(), mseloss.item()))
+            if args.gradcam:
+                train_iter.set_description("E[{}/{}]B[{}/{}]: G_loss: {:.5f} D_loss: {:.5f} GradCAM: {:.5f}".format(epoch, args.epochs,i,num_training//4,  d_loss_g.item(), d_loss_d.item(), ploss.item()))
+            elif args.l2:
+                train_iter.set_description("E[{}/{}]B[{}/{}]: G_loss: {:.5f} D_loss: {:.5f} Ploss: {:.5f} MSE: {:.5f}".format(epoch, args.epochs,i, num_training//4, d_loss_g.item(), d_loss_d.item(), ploss.item(), mseloss.item()))
+            else:
+                train_iter.set_description("E[{}/{}]B[{}/{}]: G_loss: {:.5f} D_loss: {:.5f} Ploss: {:.5f}".format(epoch, args.epochs,i, num_training//4,  d_loss_g.item(), d_loss_d.item(), ploss.item()))
 
         loss_value /= len(train_loader)
 
 
         writer.add_scalar('Loss', loss_value, epoch + 1)
+        writer.add_scalar('GLoss', GLoss.avg, epoch + 1)
+        writer.add_scalar('DLoss', DLoss.avg, epoch + 1)
+        writer.add_scalar('PLoss', PLoss.avg, epoch + 1)
 
-        print "===> Epoch[{}/{}]: MSELOSS: {:3} ".format(epoch, args.epochs, loss.item())
+        # print "===> Epoch[{}/{}]: GradCAMloss: {:3} G_loss: {:3} D_loss: {:3}".format(epoch, args.epochs, grad_loss.item(), d_loss_g.item(), d_loss_d.item())
+        # print "===> Epoch[{}/{}]: Average G_loss: {:3} Average D_loss: {:3} Average MSE : {:3}".format(epoch, args.epochs,  GLoss.avg, DLoss.avg, MSE.avg)
+        print "Epoch[{}/{}]: Average G_loss: {:.5f} Average D_loss: {:.5f} Average Ploss : {:.5f}".format(epoch, args.epochs,  GLoss.avg, DLoss.avg, PLoss.avg)
+        print '===========================================================\n'
+        # print "===> Epoch[{}/{}]: GradCAMloss: {:3} DisLoss: {:3}".format(epoch, args.epochs, grad_loss.item(), d_loss.item())
 
         if epoch % 10 == 0 and epoch != 0:
-            print ("Save model (epoch:", epoch, ")")
-            torch.save(model.state_dict(), osp.join('./models/', 'sr_' + 'output_mse' +  str(epoch) + '.pth'))
-            # torch.save(model.state_dict(), osp.join('./models/', model_name + '_' +  str(epoch) + 'epoh.pth'))
+            print ("Save net (epoch:", epoch, ")")
+            torch.save(net.state_dict(), osp.join('./models/', 'SR_' + args.message + '_' +  str(epoch) + '.pth'))
+            # torch.save(net.state_dict(), osp.join('./models/', model_name + '_' +  str(epoch) + 'epoh.pth'))
 
 
 if __name__ == "__main__":

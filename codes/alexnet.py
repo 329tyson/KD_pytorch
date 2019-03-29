@@ -15,15 +15,29 @@ class SRLayer(nn.Module):
         # f2 = 5x5, 32
         # f3 = 5x5, 3
         # element-wise addition
-        self.bn1 = nn.BatchNorm2d(3)
-        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=3, padding=1))
-        self.bn2 = nn.BatchNorm2d(64)
-        self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
-        self.bn3 = nn.BatchNorm2d(32)
-        self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
+        # self.bn0 = nn.BatchNorm2d(3)
+        # self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
+        # self.bn1 = nn.BatchNorm2d(64)
+        # self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
+        # self.bn2 = nn.BatchNorm2d(32)
+        # self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
+
+        # Layer expansions test
+        self.bn0 = nn.BatchNorm2d(3)
+        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
+        self.bn1 = nn.BatchNorm2d(64)
+        self.sconv2 = self.init_layer(nn.Conv2d(64, 128, kernel_size=5, padding=2))
+        self.bn2 = nn.BatchNorm2d(128)
+        self.sconv3 = self.init_layer(nn.Conv2d(128, 256, kernel_size=3, padding=1))
+        self.bn3 = nn.BatchNorm2d(256)
+        self.sconv4 = self.init_layer(nn.Conv2d(256, 64, kernel_size=3, padding=1))
+        self.bn4 = nn.BatchNorm2d(64)
+        self.sconv5 = self.init_layer(nn.Conv2d(64, 3, kernel_size=3, padding=1))
 
         self.relu1 = nn.ReLU(inplace=True)
         self.relu2 = nn.ReLU(inplace=True)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.relu4 = nn.ReLU(inplace=True)
 
         print('\n==============================Network Structure=================================\n')
         print('[SR Layer]')
@@ -37,16 +51,36 @@ class SRLayer(nn.Module):
     def forward(self, x):
         residual = x
 
-        x = self.bn1(x)
+        # x = self.sconv1(x)
+        # x = self.bn1(x)
+        # x = self.relu1(x)
+
+        # x = self.sconv2(x)
+        # x = self.bn2(x)
+        # x = self.relu2(x)
+
+        # x = self.sconv3(x)
+        # x = torch.tanh(x)
+
+        # Layer expansions test
         x = self.sconv1(x)
+        x = self.bn1(x)
         x = self.relu1(x)
 
-        x = self.bn2(x)
         x = self.sconv2(x)
+        x = self.bn2(x)
         x = self.relu2(x)
 
-        x = self.bn3(x)
         x = self.sconv3(x)
+        x = self.bn3(x)
+        x = self.relu3(x)
+
+        x = self.sconv4(x)
+        x = self.bn4(x)
+        x = self.relu4(x)
+
+        x = self.sconv5(x)
+        x = torch.tanh(x)
         result = x
 
         x = torch.add(residual, x)
@@ -219,7 +253,7 @@ class RACNN(nn.Module):
                 self.classificationLayer.load_state_dict(alex_weights)
 
     def forward(self, x):
-        sr_x = self.srLayer(x)
+        sr_x = self.srLayer(x)[0]
         output = self.classificationLayer(sr_x)
 
         return sr_x, output
@@ -247,10 +281,72 @@ class RACNN(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=9, padding=4))
-        self.sconv2 = self.init_layer(nn.Conv2d(64, 32, kernel_size=5, padding=2))
-        self.sconv3 = self.init_layer(nn.Conv2d(32, 3, kernel_size=5, padding=2))
+
+        self.sconv1 = self.init_layer(nn.Conv2d(3, 64, kernel_size=5, padding=1, stride = 2))
+        self.bn1 = nn.BatchNorm2d(64)
+        # 113 x 113
+        self.sconv2 = self.init_layer(nn.Conv2d(64, 128, kernel_size=5, padding=1, stride = 2))
+        self.bn2 = nn.BatchNorm2d(128)
+        # 56 x 56
+        self.sconv3 = self.init_layer(nn.Conv2d(128, 256, kernel_size=3, stride = 2, padding = 1))
+        self.bn3 = nn.BatchNorm2d(256)
+        # 28 x 28
+        self.sconv4 = self.init_layer(nn.Conv2d(256, 512, kernel_size=3, stride = 2, padding =1))
+        self.bn4 = nn.BatchNorm2d(512)
+        # 14 x 14
+        self.fconv = self.init_layer(nn.Conv2d(512, 1, kernel_size = 14))
+        # self.fconv = self.init_layer(nn.Conv2d(256, 1, kernel_size = 56))
+
+        self.relu1 = nn.LeakyReLU(inplace=True)
+        self.relu2 = nn.LeakyReLU(inplace=True)
+        self.relu3 = nn.LeakyReLU(inplace=True)
+        self.relu4 = nn.LeakyReLU(inplace=True)
+
+        self.sigmoid = nn.Sigmoid()
+
+
+        print('\n==============================Network Structure=================================\n')
+        print('[SR Layer]')
+        print('sconv1', self.sconv1)
+        print('relu1', self.relu1)
+        print('sconv2', self.sconv2)
+        print('relu2', self.relu2)
+        print('sconv3', self.sconv3)
+        print('relu3', self.relu3)
+        print('sconv4', self.sconv4)
+        print('relu4', self.relu4)
+        print('fconv', self.fconv)
+        print('sigmoid', self.sigmoid)
+        print('\n')
 
     def forward(self, x):
-        validity = self.model(x)
-        return validity
+
+        x = self.sconv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        # print 'After conv1 : {}'.format(x.shape)
+
+        x = self.sconv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+        # print 'After conv2 : {}'.format(x.shape)
+
+        x = self.sconv3(x)
+        x = self.bn3(x)
+        x = self.relu3(x)
+        # print 'After conv3 : {}'.format(x.shape)
+
+        x = self.sconv4(x)
+        x = self.bn4(x)
+        x = self.relu4(x)
+        # print 'After conv4 : {}'.format(x.shape)
+
+        x = self.fconv(x)
+        # print 'After fconv : {}'.format(x.shape)
+        x = self.sigmoid(x)
+
+        return x
+    def init_layer(self, layer):
+        nn.init.xavier_uniform_(layer.weight)
+        layer.bias.data.fill_(0)
+        return layer

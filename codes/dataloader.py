@@ -12,7 +12,7 @@ import scipy.io
 
 class Dataset(data.Dataset):
 
-    def __init__(self, dataset, annotation_path, image_path, low_ratio, data_type, ten_crop, KD_flag = False):
+    def __init__(self, dataset, annotation_path, image_path, low_ratio, data_type, ten_crop, KD_flag = False, image_norm = False):
         self.ROOT = os.path.dirname(os.path.realpath(__file__))
         self.DATASET = dataset
         self.ANNOTATION = annotation_path
@@ -22,6 +22,8 @@ class Dataset(data.Dataset):
         self.RATIO = low_ratio
         self.ten_crop = ten_crop
         self.isKD = KD_flag
+        self.image_norm = image_norm
+        self.normalise = transforms.Normalize(mean = [0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         # self.IMG_MEAN = np.array([103.939, 116.779, 123.68])
 
         if self.DATASET.lower() == 'cub':
@@ -102,7 +104,7 @@ class Dataset(data.Dataset):
         else:
             image = image[y_:h_, x_:w_]
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
-        image = image - self.IMG_MEAN
+        # image = image - self.IMG_MEAN
 
         # Random flip
         if random.random() > 0.5 :
@@ -121,6 +123,10 @@ class Dataset(data.Dataset):
             low_image = cv2.resize(low_image, (227,227), interpolation=cv2.INTER_CUBIC)
             low_image = transforms.ToTensor()(low_image)
             image = transforms.ToTensor()(image)
+
+            if self.image_norm:
+                low_image = self.normalise(low_image)
+                image = self.normalise(image)
             return image, low_image
 
 
@@ -129,10 +135,14 @@ class Dataset(data.Dataset):
             low_image = cv2.resize(image, (self.RATIO,self.RATIO), interpolation=cv2.INTER_CUBIC)
             low_image = cv2.resize(low_image, (227,227), interpolation=cv2.INTER_CUBIC)
             low_image = transforms.ToTensor()(low_image)
+            if self.image_norm:
+                low_image = self.normalise(low_image)
 
             return low_image
 
         image = transforms.ToTensor()(image)
+        if self.image_norm:
+            image = self.normalise(image)
         return image
 
     def generateTest(self, img_path, x_, y_, w_, h_):
@@ -142,7 +152,7 @@ class Dataset(data.Dataset):
         else:
             image = image[y_:h_, x_:w_]
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
-        image = image - self.IMG_MEAN
+        # image = image - self.IMG_MEAN
 
         img1 = image[0:227, 0:227]
         img2 = image[29:256, 0:227]
@@ -163,11 +173,15 @@ class Dataset(data.Dataset):
             low_image = [cv2.resize(img, (227, 227), interpolation=cv2.INTER_CUBIC) for img in low_image]
 
             low_image = [transforms.ToTensor()(img) for img in low_image]
+            if self.image_norm:
+                low_image = [self.normalise(img) for img in low_image]
             low_image = np.stack(low_image, axis=0)
 
             return low_image
 
         image = [transforms.ToTensor()(img) for img in image]
+        if self.image_norm:
+            image = [self.normalise(img) for img in image]
         image = np.stack(image, axis = 0)
 
         return image

@@ -265,7 +265,7 @@ def training(
             output, _ = net(x)
 
             # Comment only when AlexNet returns only one val
-            output = output[0]
+            # output = output[0]
 
             loss = lossfunction(output, y)
             loss.backward()
@@ -895,7 +895,7 @@ def training_attention_SR(
     global glb_grad_at
     glb_grad_at = OrderedDict()
 
-    teacher_net.conv5.register_backward_hook(save_grad_at)
+    # teacher_net.conv5.register_backward_hook(save_grad_at)
     writer = SummaryWriter('_'.join(('runs/',datetime.datetime.now().strftime('%Y-%m-%d'), description)))
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
@@ -918,7 +918,7 @@ def training_attention_SR(
         gtloss.reset()
         srloss.reset()
         kdloss.reset()
-        for x, x_low, y in training_generator:
+        for x, x_low, y, path in training_generator:
             # training_bar.set_description('TRAINING EPOCH[{}/{}]'.format(i, str(46)))
             # To CUDA tensors
             x = x.cuda().float()
@@ -934,16 +934,16 @@ def training_attention_SR(
             sr_image, output = net(x_low)
             output, s_features = output
 
-            one_hot_y = torch.zeros(output.shape).float().cuda()
-            for i in range(output.shape[0]):
-                one_hot_y[i][y[i]] = 1.0
+            # one_hot_y = torch.zeros(output.shape).float().cuda()
+            # for i in range(output.shape[0]):
+                # one_hot_y[i][y[i]] = 1.0
 
-            teacher.backward(gradient = one_hot_y, retain_graph = True)
+            # teacher.backward(gradient = one_hot_y, retain_graph = True)
 
 
             # SR_loss = attendedFeature_loss(sr_image, x, attention_weight, mse_loss, at_ratio, glb_grad_at[id(net.srLayer)])
             # SR_loss = attendedFeature_loss(s_features['conv5'], t_features['conv5'].detach(), 1, mse_loss, 2, glb_grad_at[id(teacher_net.conv5)])
-            SR_loss = mse_loss(s_features['conv5'], t_features['conv5'])
+            # SR_loss = mse_loss(s_features['conv5'], t_features['conv5'])
 
             # SR_loss.backward(gradient=one_hot_y)
             GT_loss = ce_loss(output, y)
@@ -951,12 +951,15 @@ def training_attention_SR(
                                      F.softmax(teacher / 3, dim=1))    # teacher's hook is called in every loss.backward()
             KD_loss = torch.mul(KD_loss, 9)
 
-            loss = GT_loss + KD_loss + SR_loss
+            # loss = GT_loss + KD_loss + SR_loss
+            SR_loss = 0.
+            loss = GT_loss + KD_loss
             optimizer.zero_grad()
             loss.backward()
 
             gtloss.update(GT_loss.item(), x_low.size(0))
-            srloss.update(SR_loss.item(), x_low.size(0))
+            # srloss.update(SR_loss.item(), x_low.size(0))
+            srloss.update(0, x_low.size(0))
             kdloss.update(KD_loss.item(), x_low.size(0))
 
             if SR_loss == float('inf') or SR_loss != SR_loss:

@@ -9,17 +9,17 @@ def load_weight(net, pretrained_path, fit=True):
         converted = net.state_dict()
         for lname, val in pretrained.items():
             if 'conv' in lname:
-                converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-                converted[lname+".module.bias"] = torch.from_numpy(val[1])
-                # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
-                # converted[lname+".bias"] = torch.from_numpy(val[1])
+                # converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+                # converted[lname+".module.bias"] = torch.from_numpy(val[1])
+                converted[lname+".weight"] = torch.from_numpy(val[0].transpose(3,2,0,1))
+                converted[lname+".bias"] = torch.from_numpy(val[1])
             elif 'fc8' in lname:
                 continue
             elif 'fc' in lname:
-                # converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
-                # converted[lname+".bias"] = torch.from_numpy(val[1])
-                converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(1,0))
-                converted[lname+".module.bias"] = torch.from_numpy(val[1])
+                converted[lname+".weight"] = torch.from_numpy(val[0].transpose(1,0))
+                converted[lname+".bias"] = torch.from_numpy(val[1])
+                # converted[lname+".module.weight"] = torch.from_numpy(val[0].transpose(1,0))
+                # converted[lname+".module.bias"] = torch.from_numpy(val[1])
         net.load_state_dict(converted, strict = fit)
     else:
         weight = torch.load(pretrained_path)
@@ -34,7 +34,8 @@ def generate_dataset(
     low_ratio,
     ten_crop,
     verbose,
-    is_KD = False):
+    is_KD = False,
+    image_norm = False):
     # Training Params
     params = {'batch_size': batch_size,
               'shuffle': True,
@@ -51,7 +52,7 @@ def generate_dataset(
     if dataset.lower() == 'cub':
         #generate CUB datasets
         print('\t generating CUB dataset')
-        training_set = Dataset(dataset, annotation_train, image_path, low_ratio, 'Train', False,  is_KD)
+        training_set = Dataset(dataset, annotation_train, image_path, low_ratio, 'Train', False,  KD_flag = is_KD, image_norm = image_norm)
         eval_trainset = Dataset(dataset, annotation_train, image_path, low_ratio, 'Train', ten_crop)
         eval_validationset = Dataset(dataset, annotation_val, image_path, low_ratio, 'Validation', ten_crop)
 
