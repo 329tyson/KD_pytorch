@@ -80,6 +80,7 @@ class AlexNet(nn.Module):
         # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
         self.load = True
         self.residuals = [0, 0, 0, 0, 0]
+        self.residual_layer_str = residual_layer
 
         # print(self.weights_dict.keys())
 

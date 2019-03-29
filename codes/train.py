@@ -424,7 +424,7 @@ def training(
         model_name = 'Teacher_HIGH' + '_lr:' + str(init_lr) + '_decay:' + str(lr_decay)
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -561,7 +561,7 @@ def training_KD(
         print('are you serious ...?')
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -834,7 +834,7 @@ def training_Gram_KD(
         print('are you serious ...?')
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -1166,7 +1166,7 @@ def training_attention_SR(
         print('are you serious ...?')
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d'), model_name)))
     model_name = '/' + model_name
@@ -1404,7 +1404,7 @@ def training_FSR(
         print('are you serious ...?')
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
@@ -1650,7 +1650,7 @@ def training_Disc(
         print('are you serious ...?')
 
     if any(net.residuals):
-        model_name = model_name + '_resAdapter'
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
 
     writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
     model_name = '/' + model_name
