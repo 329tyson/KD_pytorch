@@ -56,6 +56,12 @@ def parse():
         help='Learning rate decaying period'
     )
     parser.add_argument(
+        '--wd',
+        decault=0.0005,
+        type=float,
+        help='weight decay for the alexnet model'
+    )
+    parser.add_argument(
         '--batch', default=111, type=int, help='Batch Size')
     parser.add_argument(
         '--epochs',
@@ -137,6 +143,11 @@ def parse():
         '--gram_features',
         default = None,
         help = 'convnets to be used in mse loss'
+    )
+    parser.add_argument(
+        '--adapter_features',
+        default = None,
+        help = 'conv layer to be inserted parallel residual adapter module'
     )
     parser.add_argument(
         '--hint',

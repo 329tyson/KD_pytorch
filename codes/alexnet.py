@@ -51,7 +51,7 @@ class SRLayer(nn.Module):
 
 
 class conv1x1(nn.Module):
-    def __init__(self, planes, out_planes=None, is_bn=0, stride=1):
+    def __init__(self, planes, out_planes, is_bn=0, stride=1):
         super(conv1x1, self).__init__()
         self.conv = nn.Conv2d(planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False)
         self.is_bn = is_bn
@@ -84,6 +84,7 @@ class AlexNet(nn.Module):
         # print(self.weights_dict.keys())
 
         self.create_network()
+        self.adapters = nn.ModuleList()
         if residual_layer:
             self.create_residual(residual_layer, is_bn)
 
@@ -225,23 +226,32 @@ class AlexNet(nn.Module):
         print('fc8', self.fc8)
         print('\n')
 
-
     def create_residual(self, residual_layer, is_bn):
         if str(1) in residual_layer:
             self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
             self.residuals[0] = 1
+
+            self.adapters.append(self.res_adapter1)
         if str(2) in residual_layer:
             self.res_adapter2 = conv1x1(96, 256, is_bn)
             self.residuals[1] = 1
+
+            self.adapters.append(self.res_adapter2)
         if str(3) in residual_layer:
             self.res_adapter3 = conv1x1(256, 384, is_bn)
+
             self.residuals[2] = 1
+            self.adapters.append(self.res_adapter3)
         if str(4) in residual_layer:
-            self.res_adapter4 = conv1x1(384, is_bn)
+            self.res_adapter4 = conv1x1(384, 384, is_bn)
             self.residuals[3] = 1
+
+            self.adapters.append(self.res_adapter4)
         if str(5) in residual_layer:
             self.res_adapter5 = conv1x1(384, 256, is_bn)
             self.residuals[4] = 1
+
+            self.adapters.append(self.res_adapter5)
 
 
     def init_layer(self, name, net):
