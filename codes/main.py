@@ -115,7 +115,8 @@ if __name__ == '__main__':
                         sr_weights_path=args.sr_pretrain_path)
 
             optimizer = optim.SGD(
-                [{'params': net.classificationLayer.conv1.parameters()},
+                [{'params': net.classificationLayer.adapters.parameters()},
+                 {'params': net.classificationLayer.conv1.parameters()},
                  {'params': net.classificationLayer.conv2.parameters()},
                  {'params': net.classificationLayer.conv3.parameters()},
                  {'params': net.classificationLayer.conv4.parameters()},
@@ -130,24 +131,33 @@ if __name__ == '__main__':
             net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.gram_features, residual_layer=args.adapter_features)
             load_weight(net, args.pretrain_path)
 
-            optimizer= optim.SGD(
-                [{'params':net.conv1.parameters()},
-                 {'params':net.conv2.parameters()},
-                 {'params':net.conv3.parameters()},
-                 {'params':net.conv4.parameters()},
-                 {'params':net.conv5.parameters()},
-                 {'params':net.fc6.parameters()},
-                 {'params':net.fc7.parameters()},
-                 {'params':net.fc8.parameters(), 'lr':args.lr * 10},
-                 {'params':net.adapters.parameters()}],
-                lr=args.lr,
-                momentum=0.9,
-                weight_decay=args.wd)
+            if args.adapter_train:
+                optimizer = optim.SGD(
+                    [{'params': net.adapters.parameters()},
+                     {'params': net.fc6.parameters()},
+                     {'params': net.fc7.parameters()},
+                     {'params': net.fc8.parameters(), 'lr': args.lr * 10}],
+                    lr=args.lr,
+                    momentum=0.9,
+                    weight_decay=args.wd)
+            else:
+                optimizer= optim.SGD(
+                    [{'params':net.adapters.parameters()},
+                     {'params':net.conv1.parameters()},
+                     {'params':net.conv2.parameters()},
+                     {'params':net.conv3.parameters()},
+                     {'params':net.conv4.parameters()},
+                     {'params':net.conv5.parameters()},
+                     {'params':net.fc6.parameters()},
+                     {'params':net.fc7.parameters()},
+                     {'params':net.fc8.parameters(), 'lr':args.lr * 10}],
+                    lr=args.lr,
+                    momentum=0.9,
+                    weight_decay=args.wd)
 
         if low_img_need:
-            # FIXME: if training_FSR, no need for teacher_net
             if args.fsr_enabled:
-                exit()
+                exit('FIXME: if training_FSR, no need for teacher_net')
             teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
             ### for single gpu
             load_weight(teacher_net, args.pretrain_path)

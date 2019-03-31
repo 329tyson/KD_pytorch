@@ -60,7 +60,7 @@ def decay_lr(optimizer, epoch, init_lr, decay_period):
     lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
-    optimizer.param_groups[7]['lr'] = lr * 10
+    optimizer.param_groups[-1]['lr'] = lr * 10  # Assume : last element is fc8
 
 
 def decay_lr_fc8(optimizer, epoch, init_lr, decay_period):

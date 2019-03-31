@@ -211,6 +211,10 @@ def parse():
         default=0.01,
         type=float
     )
+    parser.add_argument(
+        '--adapter_train',
+        action='store_true'
+    )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)
