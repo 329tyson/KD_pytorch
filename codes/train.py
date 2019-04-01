@@ -453,6 +453,7 @@ def training(
             # Network output
             output, _ = net(x)
 
+
             loss = lossfunction(output, y)
             loss.backward()
             optimizer.step()
@@ -530,7 +531,187 @@ def training(
 
                 if save:
                     torch.save(net.state_dict(),
-                               result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation * 100) + '.pt')
+                               result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation * 100, 4)) + '.pt')
+
+            writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
+
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
+
+
+def training_adapter(
+    teacher_net,
+    net,
+    optimizer,
+    init_lr,
+    lr_decay,
+    epochs,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    low_ratio,
+    result_path,
+    logger,
+    weight,
+    vgg_gap,
+    save,
+    adapter_features
+    ):
+    lossfunction = nn.CrossEntropyLoss()
+    mse_loss = nn.MSELoss()
+    max_accuracy = 0.0
+
+    if low_ratio != 0:
+        model_name = 'Teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio)) + '_lr:' \
+                     + str(init_lr) + '_decay:' + str(lr_decay)
+    else:
+        model_name = 'Teacher_HIGH' + '_lr:' + str(init_lr) + '_decay:' + str(lr_decay)
+
+    if any(net.residuals):
+        model_name = model_name + '_resAdapter' + str(net.residual_layer_str)
+
+    writer = SummaryWriter('_'.join(('runs/' + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M'), model_name)))
+    model_name = '/' + model_name
+    print('modelName = ', result_path + model_name)
+
+    celoss = AverageMeter()
+    adapterloss = AverageMeter()
+
+    teacher_net.eval()
+
+    for epoch in range(epochs):
+
+        celoss.reset()
+        adapterloss.reset()
+
+        if not vgg_gap:
+            decay_lr(optimizer, epoch, init_lr, lr_decay)
+        else:
+            decay_lr_vgg(optimizer, epoch, init_lr, lr_decay)
+
+        net.train()
+
+        for x, x_low, y in training_generator:
+            # To CUDA tensors
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+            y = y.cuda() - 1
+
+            # Calculate gradient && Backpropagate
+            optimizer.zero_grad()
+
+            # Network output
+            output, s_feature = net(x_low)
+            _, t_feature = teacher_net(x)
+
+            adapter_loss = 0.0
+            if str(1) in adapter_features:
+                s_conv1 = s_feature['conv1']
+                t_conv1 = t_feature['conv1'].detach()
+                adapter_loss += mse_loss(s_conv1, t_conv1)
+            if str(2) in adapter_features:
+                s_conv2 = s_feature['conv2']
+                t_conv2 = t_feature['conv2'].detach()
+                adapter_loss += mse_loss(s_conv2, t_conv2)
+            if str(3) in adapter_features:
+                s_conv3 = s_feature['conv3']
+                t_conv3 = t_feature['conv3'].detach()
+                adapter_loss += mse_loss(s_conv3, t_conv3)
+            if str(4) in adapter_features:
+                s_conv4 = s_feature['conv4']
+                t_conv4 = t_feature['conv4'].detach()
+                adapter_loss += mse_loss(s_conv4, t_conv4)
+            if str(5) in adapter_features:
+                s_conv5 = s_feature['conv5']
+                t_conv5 = t_feature['conv5'].detach()
+                adapter_loss += mse_loss(s_conv5, t_conv5)
+
+            ce_loss = lossfunction(output, y)
+            loss = ce_loss + adapter_loss * weight
+
+            celoss.update(ce_loss.item(), x_low.size(0))
+            adapterloss.update(adapter_loss.item(), x_low.size(0))
+
+            loss.backward()
+            optimizer.step()
+
+        writer.add_scalars('losses', {'CE_loss': celoss.avg,
+                                      'Adapter_loss': adapterloss.avg, }, epoch + 1)
+
+        net.eval()
+
+        if (epoch + 1) % 10:
+            logger.debug('[EPOCH{}][Training][CE loss : {:.3f}][Adapter loss : {:.3f}]'
+                         .format(epoch+1, celoss.avg, adapterloss.avg))
+
+        else:   # Test only 10, 20, 30... epochs
+            hit_training = 0
+            hit_validation = 0
+
+            for x, y in eval_trainset_generator:
+                # To CUDA tensors
+                x = torch.squeeze(x)
+                x = x.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x)
+
+                # Comment only when AlexNet returns only one val
+                # output = output[0]
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_training += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_training += (prediction == y.numpy()).sum()
+
+            for x, y in eval_validationset_generator:
+                # To CUDA tensors
+                x = torch.squeeze(x)
+                x = x.cuda().float()
+                y -= 1
+
+                # Network output
+                output, _ = net(x)
+
+                # Comment only when AlexNet returns only one val
+                # output = output[0]
+
+                if ten_crop is True:
+                    prediction = torch.mean(output, dim=0)
+                    prediction = prediction.cpu().detach().numpy()
+
+                    if np.argmax(prediction) == y:
+                        hit_validation += 1
+                else:
+                    _, prediction = torch.max(output, 1)
+                    prediction = prediction.cpu().detach().numpy()
+                    hit_validation += (prediction == y.numpy()).sum()
+
+            acc_training = float(hit_training) / num_training
+            acc_validation = float(hit_validation) / num_validation
+            logger.debug('[EPOCH{}][Training][CE loss : {:.3f}][Adapter loss : {:.3f}]'
+                         .format(epoch+1, celoss.avg, adapterloss.avg))
+            logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+                         .format(acc_training*100, hit_training, num_training))
+            logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+                         .format(acc_validation*100, hit_validation, num_validation))
+
+            if max_accuracy <= acc_validation:
+                max_accuracy = acc_validation
+
+                if save:
+                    torch.save(net.state_dict(),
+                               result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation * 100, 4)) + '.pt')
 
             writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
@@ -785,7 +966,7 @@ def training_KD(
                 max_accuracy = acc_validation
 
                 if save:
-                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation* 100,4)) + '.pt')
 
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
@@ -1130,7 +1311,7 @@ def training_Gram_KD(
 
                 if save:
                     torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' +
-                               str(acc_validation * 100) + '.pt')
+                               str(round(acc_validation * 100,4)) + '.pt')
 
             if acc_validation < 0.01:
                 logger.error('This combination seems not working, stop training')
@@ -1372,7 +1553,7 @@ def training_attention_SR(
                 max_accuracy = acc_validation
 
                 if save:
-                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation* 100,4)) + '.pt')
 
             if acc_validation < 0.01 :
                 logger.error('This combination seems not working, stop training')
@@ -1626,7 +1807,8 @@ def training_FSR(
                 max_accuracy = acc_validation
 
                 if save:
-                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation* 100,4)) + '.pt')
+                    #TODO: Save generator model
 
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
@@ -1857,7 +2039,7 @@ def training_Disc(
                 max_accuracy = acc_validation
 
                 if save:
-                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(round(acc_validation* 100,4)) + '.pt')
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
     logger.debug('Finished Training\n')

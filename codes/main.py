@@ -8,6 +8,7 @@ from train import training
 from train import training_KD
 from train import training_Gram_KD
 from train import training_attention_SR
+from train import training_adapter
 from train import training_FSR
 from train import training_Disc
 from save_gradient import calculate_attention
@@ -75,7 +76,7 @@ if __name__ == '__main__':
     else:
         args.classes = 196
 
-    low_img_need = args.fsr_enabled or args.kd_enabled or args.sr_enabled
+    low_img_need = args.fsr_enabled or args.kd_enabled or args.sr_enabled or args.adapter_loss
     try:
         train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
             args.dataset,
@@ -128,7 +129,11 @@ if __name__ == '__main__':
                 momentum=0.9,
                 weight_decay=args.wd)
         else:
-            net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.gram_features, residual_layer=args.adapter_features)
+            if args.adapter_loss:
+                net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.adapter_features,
+                              residual_layer=args.adapter_features)
+            else:
+                net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.gram_features, residual_layer=args.adapter_features)
             load_weight(net, args.pretrain_path)
 
             if args.adapter_train:
@@ -158,7 +163,10 @@ if __name__ == '__main__':
         if low_img_need:
             if args.fsr_enabled:
                 exit('FIXME: if training_FSR, no need for teacher_net')
-            teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
+            if args.adapter_loss:
+                teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.adapter_features)
+            else:
+                teacher_net = AlexNet(0.5, args.classes, ['fc8'], args.gram_features)
             ### for single gpu
             load_weight(teacher_net, args.pretrain_path)
             ### for multi gpu
@@ -339,7 +347,26 @@ if __name__ == '__main__':
                 args.save,
                 args.message
             )
+    elif args.adapter_loss:
+        if args.low_ratio == 0:
+            print('Invalid argument, choose low resolution (50 | 25)')
+        else:
+            print('\nTraining Adatper supervision model')
+            print('\t on ', args.dataset, ' with hyper parameters above')
+            print('\tLow resolution scaling = {} x {}'.format(args.low_ratio, args.low_ratio))
+            print('\nTraining starts')
 
+            logger = getlogger(args.log_dir + '/Adapter_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+            for arg in vars(args):
+                logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.debug('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+            logger.debug('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+
+            training_adapter(teacher_net, net, optimizer, args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
+                             train_loader, eval_train_loader, eval_validation_loader,
+                             num_training, num_validation, args.low_ratio, args.result,
+                             logger, args.style_weight, args.vgg_gap, args.save, args.adapter_features
+                             )
     else:
         if args.low_ratio == 0:
             print('\nTraining High Resolution images')

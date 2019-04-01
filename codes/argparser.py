@@ -213,7 +213,13 @@ def parse():
     )
     parser.add_argument(
         '--adapter_train',
-        action='store_true'
+        action='store_true',
+        help='only train residual adapter and freeze base model'
+    )
+    parser.add_argument(
+        '--adapter_loss',
+        action='store_true',
+        help='add loss for residual adapter to give it supervision'
     )
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
