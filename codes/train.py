@@ -416,6 +416,7 @@ def training(
     save
     ):
     lossfunction = nn.CrossEntropyLoss()
+    max_accuracy = 0.0
 
     if low_ratio != 0:
         model_name = 'Teacher_LOW_{}x{}_'.format(str(low_ratio), str(low_ratio)) + '_lr:' \
@@ -524,10 +525,17 @@ def training(
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                          .format(acc_validation*100, hit_validation, num_validation))
 
-            if save:
-                torch.save(net.state_dict(),
-                           result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation * 100) + '.pt')
+            if max_accuracy <= acc_validation:
+                max_accuracy = acc_validation
+
+                if save:
+                    torch.save(net.state_dict(),
+                               result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation * 100) + '.pt')
+
             writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
+
+    logger.debug('Finished Training\n')
+    logger.debug('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 
 
 def training_KD(
@@ -772,10 +780,13 @@ def training_KD(
                          .format(acc_training*100, hit_training, num_training))
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                          .format(acc_validation*100, hit_validation, num_validation))
-            if max_accuracy < acc_validation:
+
+            if max_accuracy <= acc_validation:
                 max_accuracy = acc_validation
-            if save:
-                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
+                if save:
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
     logger.debug('Finished Training\n')
@@ -1114,14 +1125,16 @@ def training_Gram_KD(
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                   .format(acc_validation*100, hit_validation, num_validation))
 
-            if max_accuracy < acc_validation: max_accuracy = acc_validation
+            if max_accuracy <= acc_validation:
+                max_accuracy = acc_validation
+
+                if save:
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' +
+                               str(acc_validation * 100) + '.pt')
+
             if acc_validation < 0.01:
                 logger.error('This combination seems not working, stop training')
                 exit(1)
-
-            if save:
-                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' +
-                           str(acc_validation* 100) + '.pt')
 
             writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
@@ -1355,13 +1368,15 @@ def training_attention_SR(
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                   .format(acc_validation*100, hit_validation, num_validation))
 
-            if max_accuracy < acc_validation: max_accuracy = acc_validation
+            if max_accuracy <= acc_validation:
+                max_accuracy = acc_validation
+
+                if save:
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
             if acc_validation < 0.01 :
                 logger.error('This combination seems not working, stop training')
                 exit(1)
-
-            if save:
-                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
 
             writer.add_scalars('accuracy', {'training_acc': acc_training, 'val_acc': acc_validation, }, epoch + 1)
     logger.debug('Finished Training\n')
@@ -1606,10 +1621,13 @@ def training_FSR(
                          .format(acc_training*100, hit_training, num_training))
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                          .format(acc_validation*100, hit_validation, num_validation))
-            if max_accuracy < acc_validation:
+
+            if max_accuracy <= acc_validation:
                 max_accuracy = acc_validation
-            if save:
-                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
+                if save:
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
     logger.debug('Finished Training\n')
@@ -1835,10 +1853,11 @@ def training_Disc(
                          .format(acc_training*100, hit_training, num_training))
             logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
                          .format(acc_validation*100, hit_validation, num_validation))
-            if max_accuracy < acc_validation:
+            if max_accuracy <= acc_validation:
                 max_accuracy = acc_validation
-            if save:
-                torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
+
+                if save:
+                    torch.save(net.state_dict(), result_path + model_name + '_epoch' + str(epoch + 1) + '_acc' + str(acc_validation* 100) + '.pt')
             writer.add_scalars('accuracy', {'training_acc':acc_training, 'val_acc': acc_validation, }, epoch + 1)
 
     logger.debug('Finished Training\n')
