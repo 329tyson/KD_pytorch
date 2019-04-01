@@ -116,7 +116,7 @@ if __name__ == '__main__':
                         sr_weights_path=args.sr_pretrain_path)
 
             optimizer = optim.SGD(
-                [{'params': net.classificationLayer.adapters.parameters()},
+                [{'params': net.classificationLayer.get_all_residual_adapter_params()},
                  {'params': net.classificationLayer.conv1.parameters()},
                  {'params': net.classificationLayer.conv2.parameters()},
                  {'params': net.classificationLayer.conv3.parameters()},
@@ -138,7 +138,7 @@ if __name__ == '__main__':
 
             if args.adapter_train:
                 optimizer = optim.SGD(
-                    [{'params': net.adapters.parameters()},
+                    [{'params': net.get_all_residual_adapter_params()},
                      {'params': net.fc6.parameters()},
                      {'params': net.fc7.parameters()},
                      {'params': net.fc8.parameters(), 'lr': args.lr * 10}],
@@ -147,7 +147,7 @@ if __name__ == '__main__':
                     weight_decay=args.wd)
             else:
                 optimizer= optim.SGD(
-                    [{'params':net.adapters.parameters()},
+                    [{'params':net.get_all_residual_adapter_params()},
                      {'params':net.conv1.parameters()},
                      {'params':net.conv2.parameters()},
                      {'params':net.conv3.parameters()},

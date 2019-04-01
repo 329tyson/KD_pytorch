@@ -85,7 +85,6 @@ class AlexNet(nn.Module):
         # print(self.weights_dict.keys())
 
         self.create_network()
-        self.adapters = nn.ModuleList()
         if residual_layer:
             self.create_residual(residual_layer, is_bn)
 
@@ -231,29 +230,18 @@ class AlexNet(nn.Module):
         if str(1) in residual_layer:
             self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
             self.residuals[0] = 1
-
-            self.adapters.append(self.res_adapter1)
         if str(2) in residual_layer:
             self.res_adapter2 = conv1x1(96, 256, is_bn)
             self.residuals[1] = 1
-
-            self.adapters.append(self.res_adapter2)
         if str(3) in residual_layer:
             self.res_adapter3 = conv1x1(256, 384, is_bn)
-
             self.residuals[2] = 1
-            self.adapters.append(self.res_adapter3)
         if str(4) in residual_layer:
             self.res_adapter4 = conv1x1(384, 384, is_bn)
             self.residuals[3] = 1
-
-            self.adapters.append(self.res_adapter4)
         if str(5) in residual_layer:
             self.res_adapter5 = conv1x1(384, 256, is_bn)
             self.residuals[4] = 1
-
-            self.adapters.append(self.res_adapter5)
-
 
     def init_layer(self, name, net):
         nn.init.xavier_uniform_(net.weight)
@@ -264,6 +252,25 @@ class AlexNet(nn.Module):
 
         return net
 
+    def get_all_residual_adapter_params(self):
+        b = []
+
+        if self.residuals[0]:
+            b.append(self.res_adapter1)
+        if self.residuals[1]:
+            b.append(self.res_adapter2)
+        if self.residuals[2]:
+            b.append(self.res_adapter3)
+        if self.residuals[3]:
+            b.append(self.res_adapter4)
+        if self.residuals[4]:
+            b.append(self.res_adapter5)
+
+        for i in range(len(b)):
+            for j in b[i].modules():
+                for k in j.parameters():
+                    if k.requires_grad:
+                        yield k
 
 class RACNN(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,
