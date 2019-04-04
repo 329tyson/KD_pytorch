@@ -612,22 +612,52 @@ def training_adapter(
                 s_conv1 = s_feature['conv1']
                 t_conv1 = t_feature['conv1'].detach()
                 adapter_loss += mse_loss(s_conv1, t_conv1)
+                """
+                s_conv1 = s_feature['conv1'].detach()
+                t_conv1 = t_feature['conv1'].detach()
+                s_res1 = s_feature['res1']
+                adapter_loss += mse_loss(t_conv1 - s_conv1, s_res1)
+                """
             if str(2) in adapter_features:
                 s_conv2 = s_feature['conv2']
                 t_conv2 = t_feature['conv2'].detach()
                 adapter_loss += mse_loss(s_conv2, t_conv2)
+                """
+                s_conv2 = s_feature['conv2'].detach()
+                t_conv2 = t_feature['conv2'].detach()
+                s_res2 = s_feature['res2']
+                adapter_loss += mse_loss(t_conv2 - s_conv2, s_res2)
+                """
             if str(3) in adapter_features:
                 s_conv3 = s_feature['conv3']
                 t_conv3 = t_feature['conv3'].detach()
                 adapter_loss += mse_loss(s_conv3, t_conv3)
+                """
+                s_conv3 = s_feature['conv3'].detach()
+                t_conv3 = t_feature['conv3'].detach()
+                s_res3 = s_feature['res3']
+                adapter_loss += mse_loss(t_conv3 - s_conv3, s_res3)
+                """
             if str(4) in adapter_features:
                 s_conv4 = s_feature['conv4']
                 t_conv4 = t_feature['conv4'].detach()
                 adapter_loss += mse_loss(s_conv4, t_conv4)
+                """
+                s_conv4 = s_feature['conv4'].detach()
+                t_conv4 = t_feature['conv4'].detach()
+                s_res4 = s_feature['res4']
+                adapter_loss += mse_loss(t_conv4 - s_conv4, s_res4)
+                """
             if str(5) in adapter_features:
                 s_conv5 = s_feature['conv5']
                 t_conv5 = t_feature['conv5'].detach()
                 adapter_loss += mse_loss(s_conv5, t_conv5)
+                """
+                s_conv5 = s_feature['conv5'].detach()
+                t_conv5 = t_feature['conv5'].detach()
+                s_res5 = s_feature['res5']
+                adapter_loss += mse_loss(t_conv5 - s_conv5, s_res5)
+                """
 
             ce_loss = lossfunction(output, y)
             loss = ce_loss + adapter_loss * weight

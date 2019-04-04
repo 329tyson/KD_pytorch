@@ -102,29 +102,41 @@ class AlexNet(nn.Module):
 
         conv2 = self.conv2(x)
         if self.residuals[1]:
-            res = self.res_adapter2(x)
-            conv2 = conv2 + res
-        x = self.relu2(conv2)
+            res2 = self.res_adapter2(x)
+            x = conv2 + res2
+            # conv2 = x
+        else:
+            x = conv2
+        x = self.relu2(x)
         x = self.norm2(x)
         x = self.pool2(x)
 
         conv3 = self.conv3(x)
         if self.residuals[2]:
-            res = self.res_adapter3(x)
-            conv3 = conv3 + res
-        x = self.relu3(conv3)
+            res3 = self.res_adapter3(x)
+            x = conv3 + res3
+            # conv3 = x
+        else:
+            x = conv3
+        x = self.relu3(x)
 
         conv4 = self.conv4(x)
         if self.residuals[3]:
-            res = self.res_adapter4(x)
-            conv4 = conv4 + res
-        x = self.relu4(conv4)
+            res4 = self.res_adapter4(x)
+            x = conv4 + res4
+            # conv4 = x
+        else:
+            x = conv4
+        x = self.relu4(x)
 
         conv5 = self.conv5(x)
         if self.residuals[4]:
-            res = self.res_adapter5(x)
-            conv5 = conv5 + res
-        x = self.relu5(conv5)
+            res5 = self.res_adapter5(x)
+            x = conv5 + res5
+            # conv5 = x
+        else:
+            x = conv5
+        x = self.relu5(x)
         x = self.pool5(x)
 
         x = x.view(x.size(0), 256 * 6 * 6)
@@ -146,12 +158,20 @@ class AlexNet(nn.Module):
                 feature['conv1'] = conv1
             if str(2) in self.SAVE_LAYER:
                 feature['conv2'] = conv2
+                if self.residuals[1]:
+                    feature['res2'] = res2
             if str(3) in self.SAVE_LAYER:
                 feature['conv3'] = conv3
+                if self.residuals[2]:
+                    feature['res3'] = res3
             if str(4) in self.SAVE_LAYER:
                 feature['conv4'] = conv4
+                if self.residuals[3]:
+                    feature['res4'] = res4
             if str(5) in self.SAVE_LAYER:
                 feature['conv5'] = conv5
+                if self.residuals[4]:
+                    feature['res5'] = res5
             if str(7) in self.SAVE_LAYER:
                 feature['fc7'] = fc7
 
@@ -230,6 +250,8 @@ class AlexNet(nn.Module):
         if str(1) in residual_layer:
             self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
             self.residuals[0] = 1
+
+            # self.res_adapter1.conv.weight.data.fill_(0.0)
         if str(2) in residual_layer:
             self.res_adapter2 = conv1x1(96, 256, is_bn)
             self.residuals[1] = 1
