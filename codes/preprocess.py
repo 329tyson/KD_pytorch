@@ -24,11 +24,24 @@ def load_weight(net, pretrained_path, fit=True):
     else:
         weight = torch.load(pretrained_path)
 
-        # preserve residual adapter parameters
+        """
+        # preserve initial residual adapter parameters
         ori_params = net.state_dict().copy()
         for i in ori_params:
             if 'res' in i:
                 weight[i] = ori_params[i]
+        """
+
+        # delete unnecessary adapters parameters
+        for i in weight:
+            if 'adapters' in i:
+                del weight[i]
+
+        # teacher model doesn't have residual adpater
+        if not any(net.residuals):
+            for i in weight:
+                if 'res' in i:
+                    del weight[i]
 
         net.load_state_dict(weight, strict = fit)
 
