@@ -91,12 +91,13 @@ class AlexNet(nn.Module):
 
     def forward(self, x):
         conv1 = self.conv1(x)
-        # Error: size mismatch b.t.w conv1 & res ((128, 96, 55, 55) & (128, 96, 57, 57))
-        # if self.residuals[0]:
-        #     res = self.res_adapter1(x)
-        #     print conv1.shape, res.shape
-        #     conv1 = conv1 + res
-        x = self.relu1(conv1)
+        if self.residuals[0]:
+            res1 = self.res_adapter1(x[:, :, 5:-5, 5:-5])
+            x = conv1 + res1
+            # conv1 = x
+        else:
+            x = conv1
+        x = self.relu1(x)
         x = self.norm1(x)
         x = self.pool1(x)
 
