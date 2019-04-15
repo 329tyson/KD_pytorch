@@ -24,13 +24,11 @@ def load_weight(net, pretrained_path, fit=True):
     else:
         weight = torch.load(pretrained_path)
 
-        """
         # preserve initial residual adapter parameters
         ori_params = net.state_dict().copy()
         for i in ori_params:
             if 'res' in i:
                 weight[i] = ori_params[i]
-        """
 
         # delete unnecessary adapters parameters
         for i in weight:
