@@ -15,7 +15,7 @@ from collections import OrderedDict
 global glb_s_grad_at
 global glb_c_grad_at
 global glb_elem_grad_at
-
+# global glb_grad
 
 class AverageMeter(object):
     def __init__(self):
@@ -381,6 +381,11 @@ def save_grad_at(module, grad_in, grad_out):
     glb_elem_grad_at[id(module)] = torch.abs(grad_out[0].detach())
 
 
+def save_grad(module, grad_in, grad_out):
+    global glb_grad
+    glb_grad[id(module)] = grad_out[0].detach()
+
+
 def compute_gradCAM(feature, grad):
     bn, c, h, w= feature.shape
     # Assume : grad.shape = [bn,c]
@@ -560,6 +565,9 @@ def training_adapter(
     save,
     adapter_features
     ):
+    # global glb_grad
+    # glb_grad = OrderedDict()
+
     lossfunction = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     max_accuracy = 0.0
@@ -581,6 +589,20 @@ def training_adapter(
     adapterloss = AverageMeter()
 
     teacher_net.eval()
+
+    """
+    net.conv1.register_backward_hook(save_grad)
+    net.res_adapter1.register_backward_hook(save_grad)
+    net.res_adapter2.register_backward_hook(save_grad)
+    net.res_adapter3.register_backward_hook(save_grad)
+    net.res_adapter4.register_backward_hook(save_grad)
+    net.res_adapter5.register_backward_hook(save_grad)
+    net.fc6.register_backward_hook(save_grad)
+    net.fc7.register_backward_hook(save_grad)
+    net.fc8.register_backward_hook(save_grad)
+    """
+
+    relu = nn.ReLU()
 
     for epoch in range(epochs):
 
@@ -616,7 +638,7 @@ def training_adapter(
                 s_conv1 = s_feature['conv1'].detach()
                 t_conv1 = t_feature['conv1'].detach()
                 s_res1 = s_feature['res1']
-                adapter_loss += mse_loss(t_conv1 - s_conv1, s_res1)
+                adapter_loss += mse_loss(t_conv1, relu(s_res1 + s_conv1))
                 """
             if str(2) in adapter_features:
                 s_conv2 = s_feature['conv2']
@@ -626,7 +648,7 @@ def training_adapter(
                 s_conv2 = s_feature['conv2'].detach()
                 t_conv2 = t_feature['conv2'].detach()
                 s_res2 = s_feature['res2']
-                adapter_loss += mse_loss(t_conv2 - s_conv2, s_res2)
+                adapter_loss += mse_loss(t_conv2, relu(s_res2 + s_conv2))
                 """
             if str(3) in adapter_features:
                 s_conv3 = s_feature['conv3']
@@ -636,7 +658,7 @@ def training_adapter(
                 s_conv3 = s_feature['conv3'].detach()
                 t_conv3 = t_feature['conv3'].detach()
                 s_res3 = s_feature['res3']
-                adapter_loss += mse_loss(t_conv3 - s_conv3, s_res3)
+                adapter_loss += mse_loss(t_conv3, relu(s_res3 + s_conv3))
                 """
             if str(4) in adapter_features:
                 s_conv4 = s_feature['conv4']
@@ -646,7 +668,7 @@ def training_adapter(
                 s_conv4 = s_feature['conv4'].detach()
                 t_conv4 = t_feature['conv4'].detach()
                 s_res4 = s_feature['res4']
-                adapter_loss += mse_loss(t_conv4 - s_conv4, s_res4)
+                adapter_loss += mse_loss(t_conv4, relu(s_res4 + s_conv4))
                 """
             if str(5) in adapter_features:
                 s_conv5 = s_feature['conv5']
@@ -656,7 +678,7 @@ def training_adapter(
                 s_conv5 = s_feature['conv5'].detach()
                 t_conv5 = t_feature['conv5'].detach()
                 s_res5 = s_feature['res5']
-                adapter_loss += mse_loss(t_conv5 - s_conv5, s_res5)
+                adapter_loss += mse_loss(t_conv5, relu(s_res5 + s_conv5))
                 """
 
             ce_loss = lossfunction(output, y)
@@ -668,6 +690,72 @@ def training_adapter(
             loss.backward()
             optimizer.step()
 
+            """
+            print 'loss : ', loss.item()
+            print '\n[ activation value ]'
+            if str(1) in adapter_features:
+                print 't_conv1: ', torch.min(t_feature['conv1']).item(), torch.mean(t_feature['conv1']).item(), torch.max(t_feature['conv1']).item()
+                print 's_conv1: ', torch.min(s_conv1).item(), torch.mean(s_conv1).item(), torch.max(s_conv1).item()
+                print 'conv1(t - s): ', torch.min(t_conv1 - s_conv1).item(), torch.mean(t_conv1 - s_conv1).item(), torch.max(t_conv1 - s_conv1).item()
+            if str(2) in adapter_features:
+                print 's_conv2: ', torch.min(s_conv2).item(), torch.mean(s_conv2).item(), torch.max(s_conv2).item()
+                print 'conv2(t - s): ', torch.min(t_conv2 - s_conv2).item(), torch.mean(t_conv2 - s_conv2).item(), torch.max(t_conv2 - s_conv2).item()
+            if str(3) in adapter_features:
+                print 's_conv3: ', torch.min(s_conv3).item(), torch.mean(s_conv3).item(), torch.max(s_conv3).item()
+                print 'conv3(t - s): ', torch.min(t_conv3 - s_conv3).item(), torch.mean(t_conv3 - s_conv3).item(), torch.max(t_conv3 - s_conv3).item()
+            if str(4) in adapter_features:
+                print 's_conv4: ', torch.min(s_conv4).item(), torch.mean(s_conv4).item(), torch.max(s_conv4).item()
+                print 'conv4(t - s): ', torch.min(t_conv4 - s_conv4).item(), torch.mean(t_conv4 - s_conv4).item(), torch.max(t_conv4 - s_conv4).item()
+            if str(5) in adapter_features:
+                print 's_conv5: ', torch.min(s_conv5).item(), torch.mean(s_conv5).item(), torch.max(s_conv5).item()
+                print 'conv5(t - s): ', torch.min(t_conv5 - s_conv5).item(), torch.mean(t_conv5 - s_conv5).item(), torch.max(t_conv5 - s_conv5).item()
+            fc6 = s_feature['fc6']
+            fc7 = s_feature['fc7']
+            fc8 = y
+            print 'fc6: ', torch.min(fc6).item(), torch.mean(fc6).item(), torch.max(fc6).item()
+            print 'fc7: ', torch.min(fc7).item(), torch.mean(fc7).item(), torch.max(fc7).item()
+            print 'fc8: ', torch.min(fc8).item(), torch.max(fc8).item()
+
+
+            print '[ gradient value ]'
+            if str(1) in adapter_features:
+                print 'res1.grad: ', torch.min(glb_grad[id(net.res_adapter1)]).item(), torch.mean(glb_grad[id(net.res_adapter1)]).item(), torch.max(glb_grad[id(net.res_adapter1)]).item()
+                print 'conv1.grad: ', torch.min(glb_grad[id(net.conv1)]).item(), torch.mean(glb_grad[id(net.conv1)]).item(), torch.max(glb_grad[id(net.conv1)]).item()
+            if str(2) in adapter_features:
+                print 'res2.grad: ', torch.min(glb_grad[id(net.res_adapter2)]).item(), torch.mean(glb_grad[id(net.res_adapter2)]).item(), torch.max(glb_grad[id(net.res_adapter2)]).item()
+            if str(3) in adapter_features:
+                print 'res3.grad: ', torch.min(glb_grad[id(net.res_adapter3)]).item(), torch.mean(glb_grad[id(net.res_adapter3)]).item(), torch.max(glb_grad[id(net.res_adapter3)]).item()
+            if str(4) in adapter_features:
+                print 'res4.grad: ', torch.min(glb_grad[id(net.res_adapter4)]).item(), torch.mean(glb_grad[id(net.res_adapter4)]).item(), torch.max(glb_grad[id(net.res_adapter4)]).item()
+            if str(5) in adapter_features:
+                print 'res5.grad: ', torch.min(glb_grad[id(net.res_adapter5)]).item(), torch.mean(glb_grad[id(net.res_adapter5)]).item(), torch.max(glb_grad[id(net.res_adapter5)]).item()
+
+            print 'fc6.grad: ', torch.min(glb_grad[id(net.fc6)]).item(), torch.mean(glb_grad[id(net.fc6)]).item(), torch.max(glb_grad[id(net.fc6)]).item()
+            print 'fc7.grad: ', torch.min(glb_grad[id(net.fc7)]).item(), torch.mean(glb_grad[id(net.fc7)]).item(), torch.max(glb_grad[id(net.fc7)]).item()
+            print 'fc8.grad: ', torch.min(glb_grad[id(net.fc8)]).item(), torch.max(glb_grad[id(net.fc8)]).item()
+            
+            print '[ weight value ]'
+            print 'res1_1.w: ', torch.min(net.res_adapter1.conv1.weight).item(), torch.mean(net.res_adapter1.conv1.weight).item(), torch.max(net.res_adapter1.conv1.weight).item()
+            print 'res1_2.w: ', torch.min(net.res_adapter1.conv2.weight).item(), torch.mean(net.res_adapter1.conv2.weight).item(), torch.max(net.res_adapter1.conv2.weight).item()
+            
+            print 'res2_1.w: ', torch.min(net.res_adapter2.conv1.weight).item(), torch.mean(net.res_adapter2.conv1.weight).item(), torch.max(net.res_adapter2.conv1.weight).item()
+            print 'res2_2.w: ', torch.min(net.res_adapter2.conv2.weight).item(), torch.mean(net.res_adapter2.conv2.weight).item(), torch.max(net.res_adapter2.conv2.weight).item()
+            
+            print 'res3_1.w: ', torch.min(net.res_adapter3.conv1.weight).item(), torch.mean(net.res_adapter3.conv1.weight).item(), torch.max(net.res_adapter3.conv1.weight).item()
+            print 'res3_2.w: ', torch.min(net.res_adapter3.conv2.weight).item(), torch.mean(net.res_adapter3.conv2.weight).item(), torch.max(net.res_adapter3.conv2.weight).item()
+            
+            print 'res4_1.w: ', torch.min(net.res_adapter4.conv1.weight).item(), torch.mean(net.res_adapter4.conv1.weight).item(), torch.max(net.res_adapter4.conv1.weight).item()
+            print 'res4_2.w: ', torch.min(net.res_adapter4.conv2.weight).item(), torch.mean(net.res_adapter4.conv2.weight).item(), torch.max(net.res_adapter4.conv2.weight).item()
+            
+            print 'res5_1.w: ', torch.min(net.res_adapter5.conv1.weight).item(), torch.mean(net.res_adapter5.conv1.weight).item(), torch.max(net.res_adapter5.conv1.weight).item()
+            print 'res5_2.w: ', torch.min(net.res_adapter5.conv2.weight).item(), torch.mean(net.res_adapter5.conv2.weight).item(), torch.max(net.res_adapter5.conv2.weight).item()
+            
+            print 'fc6.w: ', torch.min(net.fc6.weight).item(), torch.mean(net.fc6.weight).item(), torch.max(net.fc6.weight).item()
+            print 'fc7.w: ', torch.min(net.fc7.weight).item(), torch.mean(net.fc7.weight).item(), torch.max(net.fc7.weight).item()
+            print 'fc8.w: ', torch.min(net.fc8.weight).item(), torch.mean(net.fc8.weight).item(), torch.max(net.fc8.weight).item()
+            """
+            print ce_loss.item(), adapter_loss.item()
+            
         writer.add_scalars('losses', {'CE_loss': celoss.avg,
                                       'Adapter_loss': adapterloss.avg, }, epoch + 1)
 
