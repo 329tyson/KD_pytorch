@@ -51,16 +51,24 @@ class SRLayer(nn.Module):
 
 
 class conv1x1(nn.Module):
-    def __init__(self, planes, out_planes, is_bn=0, stride=1):
+    def __init__(self, planes, inter_planes, out_planes, kernel_size=1, is_bn=0, stride=1, padding=0, groups=1):
         super(conv1x1, self).__init__()
-        self.conv = nn.Conv2d(planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False)
+        # self.conv = nn.Conv2d(planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(planes, inter_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=True, groups=groups)
+        if kernel_size == 3:
+            self.conv2 = nn.Conv2d(inter_planes, out_planes, kernel_size=kernel_size, padding=1, bias=True, groups=groups)
+        else:
+            self.conv2 = nn.Conv2d(inter_planes, out_planes, kernel_size=kernel_size, padding=0, bias=True, groups=groups)
         self.is_bn = is_bn
+        self.relu = nn.ReLU(inplace=True)
 
         if is_bn:
             self.bn = nn.BatchNorm2d(out_planes)
 
     def forward(self, x):
-        x = self.conv(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
         if self.is_bn:
             x = self.bn(x)
         return x
@@ -92,9 +100,10 @@ class AlexNet(nn.Module):
     def forward(self, x):
         conv1 = self.conv1(x)
         if self.residuals[0]:
-            res1 = self.res_adapter1(x[:, :, 5:-5, 5:-5])
+            # res1 = self.res_adapter1(x[:, :, 5:-5, 5:-5]) # 1x1 filter case
+            res1 = self.res_adapter1(x[:, :, 4:-4, 4:-4])
             x = conv1 + res1
-            # conv1 = x
+            # conv1 = x # uncomment when mse(t, s)
         else:
             x = conv1
         x = self.relu1(x)
@@ -157,6 +166,8 @@ class AlexNet(nn.Module):
         if self.SAVE_LAYER:
             if str(1) in self.SAVE_LAYER:
                 feature['conv1'] = conv1
+                if self.residuals[0]:
+                    feature['res1'] = res1
             if str(2) in self.SAVE_LAYER:
                 feature['conv2'] = conv2
                 if self.residuals[1]:
@@ -249,21 +260,20 @@ class AlexNet(nn.Module):
 
     def create_residual(self, residual_layer, is_bn):
         if str(1) in residual_layer:
-            self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
+            # self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
+            self.res_adapter1 = conv1x1(3, 96, 96, 3, is_bn, stride=4)
             self.residuals[0] = 1
-
-            # self.res_adapter1.conv.weight.data.fill_(0.0)
         if str(2) in residual_layer:
-            self.res_adapter2 = conv1x1(96, 256, is_bn)
+            self.res_adapter2 = conv1x1(96, 256, 256, 3, is_bn, padding=1, groups=2)
             self.residuals[1] = 1
         if str(3) in residual_layer:
-            self.res_adapter3 = conv1x1(256, 384, is_bn)
+            self.res_adapter3 = conv1x1(256, 384, 384, 1, is_bn)
             self.residuals[2] = 1
         if str(4) in residual_layer:
-            self.res_adapter4 = conv1x1(384, 384, is_bn)
+            self.res_adapter4 = conv1x1(384, 384, 384, 1, is_bn, groups=2)
             self.residuals[3] = 1
         if str(5) in residual_layer:
-            self.res_adapter5 = conv1x1(384, 256, is_bn)
+            self.res_adapter5 = conv1x1(384, 384, 256, 1, is_bn, groups=2)
             self.residuals[4] = 1
 
     def init_layer(self, name, net):
