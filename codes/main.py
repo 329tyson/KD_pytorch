@@ -22,9 +22,17 @@ from torchvision import models
 import os
 import torch.optim as optim
 import torch
+#import numpy as np
+#import random
 
 
 if __name__ == '__main__':
+    # make program deterministic
+    # torch.manual_seed(0)
+    # torch.cuda.manual_seed(0)
+    # np.random.seed(0)
+    # random.seed(0)
+
     # Parse argument from user input
     # args are set to default as followed
     # - args.root = CWD
