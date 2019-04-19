@@ -76,6 +76,8 @@ def parse():
     parser.add_argument(
         '--pretrain_path', default='NONE', type=str, help='Pretrained model (.pth)')
     parser.add_argument(
+        '--student_pretrain_path', default='NONE', type=str, help='Pretrained student model (.pth)')
+    parser.add_argument(
         '--checkpoint',
         default=10,
         type=int,

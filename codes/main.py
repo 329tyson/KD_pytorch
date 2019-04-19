@@ -74,6 +74,10 @@ if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
 
+    if args.student_pretrain_path != 'NONE':
+        args.student_pretrain_path = os.path.join(args.root, args.student_pretrain_path)
+    elif args.pretrain_path != 'NONE':
+        args.student_pretrain_path = os.path.join(args.root, args.pretrain_path)
     if args.pretrain_path != 'NONE':
         args.pretrain_path = os.path.join(args.root, args.pretrain_path)
     if args.sr_pretrain_path != 'NONE':
@@ -104,8 +108,8 @@ if __name__ == '__main__':
         vgg16 = models.vgg16(True)
         net = VGG_gap(vgg16, args.classes)
 
-        if args.pretrain_path != 'NONE':
-            net.load_state_dict(torch.load(args.pretrain_path))
+        if args.student_pretrain_path != 'NONE':
+            net.load_state_dict(torch.load(args.student_pretrain_path))
 
         optimizer = optim.SGD(
             net.parameters(),
@@ -120,7 +124,7 @@ if __name__ == '__main__':
 
     else:
         if args.sr_enabled:
-            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path=args.pretrain_path,
+            net = RACNN(0.5, args.classes, ['fc8'], alex_weights_path=args.student_pretrain_path,
                         sr_weights_path=args.sr_pretrain_path)
 
             optimizer = optim.SGD(
@@ -142,7 +146,7 @@ if __name__ == '__main__':
                               residual_layer=args.adapter_features)
             else:
                 net = AlexNet(0.5, args.classes, ['fc8'], save_layer=args.gram_features, residual_layer=args.adapter_features)
-            load_weight(net, args.pretrain_path)
+            load_weight(net, args.student_pretrain_path)
 
             if args.adapter_train:
                 optimizer = optim.SGD(
