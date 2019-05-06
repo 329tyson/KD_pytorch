@@ -160,6 +160,10 @@ def parse():
         action='store_true'
     )
     parser.add_argument(
+        '--writer',
+        action='store_true'
+    )
+    parser.add_argument(
         '--vgg_gap',
         action='store_true'
     )

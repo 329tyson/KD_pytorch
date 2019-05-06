@@ -224,7 +224,7 @@ if __name__ == '__main__':
         training_Disc(teacher_net, net, optimizer, discriminator, optimizer_D, args.w_clip,
                      args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
-                     args.low_ratio, args.result, logger, args.vgg_gap, args.save)
+                     args.low_ratio, args.result, logger, args.vgg_gap, args.save, args.writer)
 
     elif args.kd_enabled:
         if args.low_ratio == 0:
@@ -281,6 +281,7 @@ if __name__ == '__main__':
                     args.at_enabled,
                     args.at_ratio,
                     args.save,
+                    args.writer,
                     args.c_at,
                     args.s_at
                 )
@@ -309,7 +310,8 @@ if __name__ == '__main__':
                     args.result,
                     logger,
                     args.vgg_gap,
-                    args.save
+                    args.save,
+                    args.writer
                     )
     elif args.sr_enabled:
         if args.low_ratio == 0:
@@ -357,6 +359,7 @@ if __name__ == '__main__':
                 args.at_enabled,
                 args.at_ratio,
                 args.save,
+                args.writer,
                 args.message
             )
     elif args.adapter_loss:
@@ -377,7 +380,7 @@ if __name__ == '__main__':
             training_adapter(teacher_net, net, optimizer, args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                              train_loader, eval_train_loader, eval_validation_loader,
                              num_training, num_validation, args.low_ratio, args.result,
-                             logger, args.style_weight, args.vgg_gap, args.save, args.adapter_features
+                             logger, args.style_weight, args.vgg_gap, args.save, args.writer, args.adapter_features
                              )
     else:
         if args.low_ratio == 0:
@@ -397,7 +400,8 @@ if __name__ == '__main__':
                      args.low_ratio, args.result,
                      logger,
                      args.vgg_gap,
-                     args.save
+                     args.save,
+                     args.writer
                      )
         else:
             print('\nTraining Low Resolution images')
@@ -417,6 +421,7 @@ if __name__ == '__main__':
                      args.low_ratio, args.result,
                      logger,
                      args.vgg_gap,
-                     args.save
+                     args.save,
+                     args.writer
                      )
 
