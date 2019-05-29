@@ -29,6 +29,8 @@ def load_weight(net, pretrained_path, fit=True):
         for i in ori_params:
             if 'res' in i:
                 weight[i] = ori_params[i]
+            if 'at' in i:
+                weight[i] = ori_params[i]
 
         # delete unnecessary adapters parameters
         for i in weight:

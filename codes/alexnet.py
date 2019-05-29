@@ -6,6 +6,7 @@ import time
 import datetime
 import logging
 
+from gumbelmodule import GumbelSoftmax
 
 class SRLayer(nn.Module):
     def __init__(self):
@@ -49,6 +50,37 @@ class SRLayer(nn.Module):
         layer.bias.data.fill_(0)
         return layer
 
+class ResidualAdapter(nn.Module):
+    def __init__(self, in_planes, inter_planes, out_planes, kernel_size=1, stride=1, padding=0, groups=1):
+        super(ResidualAdapter, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, inter_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=True, groups=groups)
+        self.conv2 = nn.Conv2d(inter_planes, out_planes, kernel_size=3, padding=1, bias=True, groups=groups)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        return x
+
+
+class AttentionModule(nn.Module):
+    def __init__(self, in_channels, kernel_size=7, stride=1, padding=3):
+        super(AttentionModule, self).__init__()
+        self.conv = self.init_layer(nn.Conv2d(2, 2, kernel_size=kernel_size, stride=stride, padding=padding))
+
+    def init_layer(self, net):
+        nn.init.xavier_uniform_(net.weight)
+        nn.init.constant_(net.bias, 0.0)
+
+        return net
+
+    def forward(self, x):
+        # first, channel pooling using Max & mean
+        x = torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1)
+        x = self.conv(x)
+        return x 
+
 
 class conv1x1(nn.Module):
     def __init__(self, planes, inter_planes, out_planes, kernel_size=1, is_bn=0, stride=1, padding=0, groups=1):
@@ -90,18 +122,28 @@ class AlexNet(nn.Module):
         self.residuals = [0, 0, 0, 0, 0]
         self.residual_layer_str = residual_layer
 
+        self.gs = GumbelSoftmax()
+        self.gs.cuda()
+        self.temperature = 1
+
         # print(self.weights_dict.keys())
 
         self.create_network()
         if residual_layer:
             self.create_residual(residual_layer, is_bn)
 
-
     def forward(self, x):
         conv1 = self.conv1(x)
         if self.residuals[0]:
+            at = self.at1(x)
+            mask1 = self.gs(at, temp=self.temperature, force_hard=True)
+
+            # res1 = self.res_adapter1(x[:, :, 4:-4, 4:-4])
+            res1 = self.res_adapter1(x)
+            res1 = res1 * mask1[:, 1, :, :].unsqueeze(1).expand(res1.shape)
+
             # res1 = self.res_adapter1(x[:, :, 5:-5, 5:-5]) # 1x1 filter case
-            res1 = self.res_adapter1(x[:, :, 4:-4, 4:-4])
+
             x = conv1 + res1
             # conv1 = x # uncomment when mse(t, s)
         else:
@@ -112,7 +154,13 @@ class AlexNet(nn.Module):
 
         conv2 = self.conv2(x)
         if self.residuals[1]:
+            at = self.at2(x)
+            mask2 = self.gs(at, temp=self.temperature, force_hard=True)
+
             res2 = self.res_adapter2(x)
+
+            res2 = res2 * mask2[:,1,:,:].unsqueeze(1).expand(res2.shape)
+
             x = conv2 + res2
             # conv2 = x
         else:
@@ -123,7 +171,11 @@ class AlexNet(nn.Module):
 
         conv3 = self.conv3(x)
         if self.residuals[2]:
+            at = self.at3(x)
+            mask3 = self.gs(at, temp=self.temperature, force_hard=True)
             res3 = self.res_adapter3(x)
+
+            res3 = res3 * mask3[:,1,:,:].unsqueeze(1).expand(res3.shape)
             x = conv3 + res3
             # conv3 = x
         else:
@@ -132,7 +184,11 @@ class AlexNet(nn.Module):
 
         conv4 = self.conv4(x)
         if self.residuals[3]:
+            at = self.at4(x)
+            mask4 = self.gs(at, temp=self.temperature, force_hard=True)
             res4 = self.res_adapter4(x)
+
+            res4 = res4 * mask4[:,1,:,:].unsqueeze(1).expand(res4.shape)
             x = conv4 + res4
             # conv4 = x
         else:
@@ -141,7 +197,11 @@ class AlexNet(nn.Module):
 
         conv5 = self.conv5(x)
         if self.residuals[4]:
+            at = self.at5(x)
+            mask5 = self.gs(at, temp=self.temperature, force_hard=True)
             res5 = self.res_adapter5(x)
+
+            res5 = res5 * mask5[:,1,:,:].unsqueeze(1).expand(res5.shape)
             x = conv5 + res5
             # conv5 = x
         else:
@@ -168,22 +228,27 @@ class AlexNet(nn.Module):
                 feature['conv1'] = conv1
                 if self.residuals[0]:
                     feature['res1'] = res1
+                    feature['mask1'] = mask1
             if str(2) in self.SAVE_LAYER:
                 feature['conv2'] = conv2
                 if self.residuals[1]:
                     feature['res2'] = res2
+                    feature['mask2'] = mask2
             if str(3) in self.SAVE_LAYER:
                 feature['conv3'] = conv3
                 if self.residuals[2]:
                     feature['res3'] = res3
+                    feature['mask3'] = mask3
             if str(4) in self.SAVE_LAYER:
                 feature['conv4'] = conv4
                 if self.residuals[3]:
                     feature['res4'] = res4
+                    feature['mask4'] = mask4
             if str(5) in self.SAVE_LAYER:
                 feature['conv5'] = conv5
                 if self.residuals[4]:
                     feature['res5'] = res5
+                    feature['mask5'] = mask5
             if str(7) in self.SAVE_LAYER:
                 feature['fc7'] = fc7
 
@@ -261,20 +326,43 @@ class AlexNet(nn.Module):
     def create_residual(self, residual_layer, is_bn):
         if str(1) in residual_layer:
             # self.res_adapter1 = conv1x1(3, 96, is_bn, stride=4)
-            self.res_adapter1 = conv1x1(3, 96, 96, 3, is_bn, stride=4)
+            # self.res_adapter1 = conv1x1(3, 96, 96, 3, is_bn, stride=4)
+            self.res_adapter1 = ResidualAdapter(3, 96, 96, 11, stride=4)
             self.residuals[0] = 1
+
+            # self.at1 = self.init_layer('at1', nn.Conv2d(3, 2, kernel_size=11, stride=4))
+            self.at1 = AttentionModule(3, kernel_size=11, stride=4, padding=0)
+
         if str(2) in residual_layer:
-            self.res_adapter2 = conv1x1(96, 256, 256, 3, is_bn, padding=1, groups=2)
+            # self.res_adapter2 = conv1x1(96, 256, 256, 3, is_bn, padding=1, groups=2)
+            self.res_adapter2 = ResidualAdapter(96, 96, 256, 5, padding=2, groups=2)
             self.residuals[1] = 1
+
+            # sel.fat2 = self.init_layer('at2', nn.Conv2d(96, 2, kernel_size=5, padding=2))
+            self.at2 = AttentionModule(96)
+
         if str(3) in residual_layer:
-            self.res_adapter3 = conv1x1(256, 384, 384, 1, is_bn)
+            # self.res_adapter3 = conv1x1(256, 384, 384, 1, is_bn)
+            self.res_adapter3 = ResidualAdapter(256, 256, 384, 3, padding=1)
             self.residuals[2] = 1
+
+            # self.at3 = self.init_layer('at3', nn.Conv2d(256, 2, kernel_size=3, padding=1))
+            self.at3 = AttentionModule(256, kernel_size=5, padding=2)
+
         if str(4) in residual_layer:
-            self.res_adapter4 = conv1x1(384, 384, 384, 1, is_bn, groups=2)
+            # self.res_adapter4 = conv1x1(384, 384, 384, 1, is_bn, groups=2)
+            self.res_adapter4 = ResidualAdapter(384, 384, 384, 3, padding=1, groups=2)
             self.residuals[3] = 1
+
+            # self.at4 = self.init_layer('at4', nn.Conv2d(384, 2, kernel_size=3, padding=1))
+            self.at4 = AttentionModule(384, kernel_size=5, padding=2)
+
         if str(5) in residual_layer:
-            self.res_adapter5 = conv1x1(384, 384, 256, 1, is_bn, groups=2)
+            # self.res_adapter5 = conv1x1(384, 384, 256, 1, is_bn, groups=2)
+            self.res_adapter5 = ResidualAdapter(384, 256, 256, 3, padding=1, groups=2)
             self.residuals[4] = 1
+
+            self.at5 = AttentionModule(384, kernel_size=5, padding=2)
 
     def init_layer(self, name, net):
         nn.init.xavier_uniform_(net.weight)
@@ -304,6 +392,27 @@ class AlexNet(nn.Module):
                 for k in j.parameters():
                     if k.requires_grad:
                         yield k
+
+    def get_all_at_layer_params(self):
+        b = []
+
+        if self.residuals[0]:
+            b.append(self.at1)
+        if self.residuals[1]:
+            b.append(self.at2)
+        if self.residuals[2]:
+            b.append(self.at3)
+        if self.residuals[3]:
+            b.append(self.at4)
+        if self.residuals[4]:
+            b.append(self.at5)
+
+        for i in range(len(b)):
+            for j in b[i].modules():
+                for k in j.parameters():
+                    if k.requires_grad:
+                        yield k
+
 
 class RACNN(nn.Module):
     def __init__(self, keep_prob, num_classes, skip_layer,

@@ -32,6 +32,16 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+class HingeLoss(nn.Module):
+    def __init__(self, margin):
+        super(HingeLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, input, target):
+        hinge_loss = self.margin - torch.mul(input, target)
+        hinge_loss[hinge_loss < 0] = 0
+        return torch.mean(hinge_loss)
+
 
 def isNaN(num):
     if num == float("inf"):
@@ -386,6 +396,13 @@ def save_grad(module, grad_in, grad_out):
     glb_grad[id(module)] = grad_out[0].detach()
 
 
+def reset_zero_grad(module, grad_in, grad_out):
+    # Assume : this hook function is registered in Conv filter
+    # So, grad_in[0] : input jacobian, grad_in[1] : filter gradient, grad_in[2] : bias gradient
+    if grad_in[0] is not None:
+        for i in range(len(grad_in[0])):
+            grad_in[0][i] = 0.0
+
 def compute_gradCAM(feature, grad):
     bn, c, h, w= feature.shape
     # Assume : grad.shape = [bn,c]
@@ -562,6 +579,7 @@ def training_adapter(
     result_path,
     logger,
     weight,
+    at_ratio,
     vgg_gap,
     save,
     is_writer,
@@ -573,6 +591,7 @@ def training_adapter(
     glb_s_grad_at = OrderedDict()
 
     lossfunction = nn.CrossEntropyLoss()
+    hinge = HingeLoss(at_ratio)
     mse_loss = nn.MSELoss()
     max_accuracy = 0.0
 
@@ -593,6 +612,17 @@ def training_adapter(
     celoss = AverageMeter()
     adapterloss = AverageMeter()
 
+    if str(1) in adapter_features:
+        ratio1 = AverageMeter()
+    if str(2) in adapter_features:
+        ratio2 = AverageMeter()
+    if str(3) in adapter_features:
+        ratio3 = AverageMeter()
+    if str(4) in adapter_features:
+        ratio4 = AverageMeter()
+    if str(5) in adapter_features:
+        ratio5 = AverageMeter()
+
     teacher_net.eval()
 
     """
@@ -612,12 +642,39 @@ def training_adapter(
     # net.fc8.register_backward_hook(save_grad)
     """
 
+    if str(1) in adapter_features:
+        net.res_adapter1.register_backward_hook(reset_zero_grad)
+        net.at1.register_backward_hook(reset_zero_grad)
+    if str(2) in adapter_features:
+        net.res_adapter2.register_backward_hook(reset_zero_grad)
+        net.at2.register_backward_hook(reset_zero_grad)
+    if str(3) in adapter_features:
+        net.res_adapter3.register_backward_hook(reset_zero_grad)
+        net.at3.register_backward_hook(reset_zero_grad)
+    if str(4) in adapter_features:
+        net.res_adapter4.register_backward_hook(reset_zero_grad)
+        net.at4.register_backward_hook(reset_zero_grad)
+    if str(5) in adapter_features:
+        net.res_adapter5.register_backward_hook(reset_zero_grad)
+        net.at5.register_backward_hook(reset_zero_grad)
+
     relu = nn.ReLU()
 
     for epoch in range(epochs):
 
         celoss.reset()
         adapterloss.reset()
+
+        if str(1) in adapter_features:
+            ratio1.reset()
+        if str(2) in adapter_features:
+            ratio2.reset()
+        if str(3) in adapter_features:
+            ratio3.reset()
+        if str(4) in adapter_features:
+            ratio4.reset()
+        if str(5) in adapter_features:
+            ratio5.reset()
 
         if not vgg_gap:
             decay_lr(optimizer, epoch, init_lr, lr_decay)
@@ -650,10 +707,23 @@ def training_adapter(
             """
 
             adapter_loss = 0.0
+            act_loss = 0.0
+
             if str(1) in adapter_features:
                 s_conv1 = s_feature['conv1']
                 t_conv1 = t_feature['conv1'].detach()
-                adapter_loss += mse_loss(s_conv1, t_conv1)
+                s_res1 = s_feature['res1']
+                mask1 = s_feature['mask1'][:,1,:,:].unsqueeze(1)
+
+                acts_ratio1 = torch.mean(mask1.view(mask1.shape[0], -1), dim=1)
+                # act_loss += torch.mean(torch.pow(0.5 - acts_ratio1, 2))
+                act_loss += hinge(acts_ratio1, 1)
+
+                mask1 = mask1.detach()
+                adapter_loss += mse_loss(mask1 * t_conv1, relu(mask1 * s_conv1 + s_res1))
+
+                # adapter_loss += mse_loss(s_conv1, t_conv1)
+                ratio1.update(torch.mean(acts_ratio1).item(), x_low.size(0))
 
                 """
                 s_conv1 = s_feature['conv1'].detach()
@@ -664,7 +734,18 @@ def training_adapter(
             if str(2) in adapter_features:
                 s_conv2 = s_feature['conv2']
                 t_conv2 = t_feature['conv2'].detach()
-                adapter_loss += mse_loss(s_conv2, t_conv2)
+                s_res2 = s_feature['res2']
+                mask2 = s_feature['mask2'][:,1,:,:].unsqueeze(1)
+
+                acts_ratio2 = torch.mean(mask2.view(mask2.shape[0], -1), dim=1)
+                # act_loss += torch.mean(torch.pow(0.5 - acts_ratio2, 2))
+                act_loss += hinge(acts_ratio2, 1)
+
+                mask2 = mask2.detach()
+                adapter_loss += mse_loss(mask2 * t_conv2, relu(mask2 * s_conv2 + s_res2))
+
+                # adapter_loss += mse_loss(s_conv2, t_conv2)
+                ratio2.update(torch.mean(acts_ratio2).item(), x_low.size(0))
 
                 """
                 s_conv2 = s_feature['conv2'].detach()
@@ -675,7 +756,17 @@ def training_adapter(
             if str(3) in adapter_features:
                 s_conv3 = s_feature['conv3']
                 t_conv3 = t_feature['conv3'].detach()
-                adapter_loss += mse_loss(s_conv3, t_conv3)
+                s_res3 = s_feature['res3']
+                mask3 = s_feature['mask3'][:,1,:,:].unsqueeze(1)
+
+                acts_ratio3 = torch.mean(mask3.view(mask3.shape[0], -1), dim=1)
+                # act_loss += torch.mean(torch.pow(0.5 - acts_ratio3, 2))
+                act_loss += hinge(acts_ratio3, 1)
+
+                mask3 = mask3.detach()
+                adapter_loss += mse_loss(mask3 * t_conv3, relu(mask3 * s_conv3 + s_res3))
+                # adapter_loss += mse_loss(s_conv3, t_conv3)
+                ratio3.update(torch.mean(acts_ratio3).item(), x_low.size(0))
 
                 """
                 s_conv3 = s_feature['conv3'].detach()
@@ -686,7 +777,17 @@ def training_adapter(
             if str(4) in adapter_features:
                 s_conv4 = s_feature['conv4']
                 t_conv4 = t_feature['conv4'].detach()
-                adapter_loss += mse_loss(s_conv4, t_conv4)
+                s_res4 = s_feature['res4']
+                mask4 = s_feature['mask4'][:,1,:,:].unsqueeze(1)
+
+                acts_ratio4 = torch.mean(mask4.view(mask4.shape[0], -1), dim=1)
+                # act_loss += torch.mean(torch.pow(0.5 - acts_ratio4, 2))
+                act_loss += hinge(acts_ratio4, 1)
+
+                mask4 = mask4.detach()
+                adapter_loss += mse_loss(mask4 * t_conv4, relu(mask4 * s_conv4 + s_res4))
+                # adapter_loss += mse_loss(s_conv4, t_conv4)
+                ratio4.update(torch.mean(acts_ratio4).item(), x_low.size(0))
 
                 """
                 s_conv4 = s_feature['conv4'].detach()
@@ -697,7 +798,18 @@ def training_adapter(
             if str(5) in adapter_features:
                 s_conv5 = s_feature['conv5']
                 t_conv5 = t_feature['conv5'].detach()
-                adapter_loss += mse_loss(s_conv5, t_conv5)
+                s_res5 = s_feature['res5']
+                mask5 = s_feature['mask5'][:,1,:,:].unsqueeze(1)
+
+                acts_ratio5 = torch.mean(mask5.view(mask5.shape[0], -1), dim=1)
+                # act_loss += torch.mean(torch.pow(0.5 - acts_ratio5, 2))
+                act_loss += hinge(acts_ratio5, 1)
+
+                mask5 = mask5.detach()
+                adapter_loss += mse_loss(mask5 * t_conv5, relu(mask5 * s_conv5 + s_res5))
+
+                # adapter_loss += mse_loss(s_conv5, t_conv5)
+                ratio5.update(torch.mean(acts_ratio5).item(), x_low.size(0))
 
                 """
                 s_conv5 = s_feature['conv5'].detach()
@@ -707,7 +819,8 @@ def training_adapter(
                 """
 
             ce_loss = lossfunction(output, y)
-            loss = ce_loss + adapter_loss * weight
+            # FIXME: act_loss weight should be fixed!
+            loss = ce_loss + adapter_loss * weight + act_loss * 4
 
             celoss.update(ce_loss.item(), x_low.size(0))
             adapterloss.update(adapter_loss.item(), x_low.size(0))
@@ -783,6 +896,7 @@ def training_adapter(
             # print 'fc7.w: ', torch.min(net.fc7.weight).item(), torch.mean(net.fc7.weight).item(), torch.max(net.fc7.weight).item()
             # print 'fc8.w: ', torch.min(net.fc8.weight).item(), torch.mean(net.fc8.weight).item(), torch.max(net.fc8.weight).item()
             """
+            # print 'at2.w: ', torch.min(net.at2.weight).item(), torch.mean(net.at2.weight).item(), torch.max(net.at2.weight).item()
         
         if is_writer:    
             writer.add_scalars('losses', {'CE_loss': celoss.avg,
@@ -791,8 +905,20 @@ def training_adapter(
         net.eval()
 
         if (epoch + 1) % 10:
-            logger.debug('[EPOCH{}][Training][CE loss : {:.3f}][Adapter loss : {:.3f}]'
-                         .format(epoch+1, celoss.avg, adapterloss.avg))
+            ratios = []
+            if str(1) in adapter_features:
+                ratios.append(round(ratio1.avg, 2))
+            if str(2) in adapter_features:
+                ratios.append(round(ratio2.avg, 2))
+            if str(3) in adapter_features:
+                ratios.append(round(ratio3.avg, 2))
+            if str(4) in adapter_features:
+                ratios.append(round(ratio4.avg, 2))
+            if str(5) in adapter_features:
+                ratios.append(round(ratio5.avg, 2))
+
+            logger.debug('[EPOCH{}][Training][CE loss : {:.3f}][Adapter loss : {:.3f}][ratios : {}]'
+                         .format(epoch+1, celoss.avg, adapterloss.avg, ratios))
 
         else:   # Test only 10, 20, 30... epochs
             hit_training = 0

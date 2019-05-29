@@ -4,14 +4,14 @@ from torch.autograd import Variable
 
 """
 Gumbel Softmax Sampler
-Requires 2D input [batchsize, number of categories]
+Requires 3D input [batchsize, (h*w) spatial size, number of categories]
 
 Does not support sinlge binary category. Use two dimensions with softmax instead.
 """
 
 class GumbelSoftmax(torch.nn.Module):
     def __init__(self, hard=False):
-        super(GumbleSoftmax, self).__init__()
+        super(GumbelSoftmax, self).__init__()
         self.hard = hard
         self.gpu = False
 
@@ -41,7 +41,7 @@ class GumbelSoftmax(torch.nn.Module):
         dim = logits.size(-1)
         gumble_samples_tensor = self.sample_gumbel_like(logits.data)
         gumble_trick_log_prob_samples = logits + Variable(gumble_samples_tensor)
-        soft_samples = F.softmax(gumble_trick_log_prob_samples / temperature, dim)
+        soft_samples = F.softmax(gumble_trick_log_prob_samples / temperature, 1)
         return soft_samples
 
     def gumbel_softmax(self, logits, temperature, hard=False):
