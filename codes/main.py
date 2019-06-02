@@ -1,5 +1,6 @@
 from argparser import parse
 from alexnet import AlexNet
+from alexnet import SharedAlexNet
 from VGG_gap import VGG_gap
 from alexnet import RACNN
 from train import *
@@ -7,7 +8,9 @@ from save_gradient import calculate_grad
 from save_gradient import calculate_gradCAM
 from preprocess import load_weight
 from preprocess import generate_dataset
-from logger import getlogger
+from logger import Logger
+
+# from logger import getlogger
 
 from torchvision import models
 
@@ -17,36 +20,6 @@ import torch
 
 
 if __name__ == '__main__':
-    # Parse argument from user input
-    # args are set to default as followed
-    # - args.root = CWD
-    # - args.data = ./data
-    # - args.annotation_train = ./annotations_train
-    # - args.annotation_val = ./annotations_val
-    # - args.result = ./results
-    # - args.dataset = None
-    # - args.classes = 0
-    # - args.lr = 0.001
-    # - args.batch = 111
-    # - args.epochs = 200
-    # - args.resume = False
-    # - args.checkpoint = 10
-    # - args.low_ratio = 0
-    # - args.verbose
-    # - args.kd_enabled = False
-    # - args.kd_temperature = 3
-    # - args.log_dir =./logs
-    # - args.gpu = 0
-    # - args.noise = False
-    # - args.style_weight = 1
-    # - args.gram_enabled = False
-    # - args.path_norm = 0 # no normalization
-    # - args.path_num = 1
-    # - args.hint = False
-    # - args.save = False
-    # - args.vgg_gap = False
-    # - args.sr_enabled = False
-    # - args.message = 'no comments'
     args = parse()
     args.annotation_train = os.path.join(args.root, args.annotation_train)
     args.annotation_val = os.path.join(args.root, args.annotation_val)
@@ -62,10 +35,13 @@ if __name__ == '__main__':
     if args.sr_pretrain_path != 'NONE':
         args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
 
-    if args.dataset.lower() == 'cub':
-        args.classes = 200
-    else:
-        args.classes = 196
+    if args.verbose is True:
+        print('Training arguments settings')
+        for arg in vars(args):
+            print '\t',arg, getattr(args, arg)
+
+
+    args.classes = 200 if args.dataset.lower() == 'cub' else 196
 
     if args.vgg_gap :
         vgg16 = models.vgg16(True)
@@ -79,9 +55,71 @@ if __name__ == '__main__':
             lr=args.lr,
             momentum=0.9,
             weight_decay=0.0005)
+    elif args.shared is True:
+        args.ratios = [float(ratio) for ratio in args.ratios.split()]
+        print 'Training on SHARED ALEXNET for ratios : {}'.format(args.ratios)
+        net = SharedAlexNet(args.ratios).cuda()
+        load_weight(net, args.pretrain_path, shared= args.shared, ratios = args.ratios)
 
+        optimizer_hr = optim.SGD(
+            [{'params':net.convs_hr.parameters()},
+             {'params':net.convs_shared.parameters()},
+             {'params':net.fc6_hr.parameters()},
+             {'params':net.fc7_hr.parameters()},
+             {'params':net.fc8_hr.parameters(), 'lr':args.lr * 10}],
+            lr = args.lr,
+            momentum = 0.9,
+            weight_decay =  0.0005
+        )
+        optimizer_lr = optim.SGD(
+            [{'params':net.convs_lr.parameters()},
+             {'params':net.convs_shared.parameters()},
+             {'params':net.fc6_lr.parameters()},
+             {'params':net.fc7_lr.parameters()},
+             {'params':net.fc8_lr.parameters(), 'lr':args.lr * 10}],
+            lr = args.lr,
+            momentum = 0.9,
+            weight_decay =  0.0005
+        )
+        train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation = generate_dataset(
+            args.dataset,
+            args.batch,
+            args.annotation_train,
+            args.annotation_val,
+            args.data,
+            args.low_ratio,
+            args.ten_batch_eval,
+            args.verbose,
+            is_KD = args.shared)
+        # logger = getlogger(args.log_dir + '/PCSRN_DATASET_{}_LOW_{}'
+                           # .format(args.dataset, str(args.low_ratio)))
+        logger = Logger(args.log_dir + '/PCSRN_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)), stdout= False)
+        logger.message('\nTraining model with partially coupled net, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))
+        logger.message('===============================TRAINING SETTING==========================================')
+        for arg in vars(args):
+            logger.message('\t{} - {}'.format(str(arg), str(getattr(args, arg))))
+        logger.message('=========================================================================================')
+        shared_training(
+            net,
+            optimizer_hr,
+            optimizer_lr,
+            args.ten_batch_eval,
+            train_loader,
+            eval_train_loader,
+            eval_validation_loader,
+            num_training,
+            num_validation,
+            args.result,
+            logger    = logger,
+            init_lr   = args.lr,
+            epochs    = args.epochs,
+            lr_decay  = args.lr_decay,
+            low_ratio = args.low_ratio,
+        )
+        exit()
     else:
-        net = AlexNet(0.5, args.classes, ['fc8'], res=True)
+        # net = AlexNet(0.5, args.classes, ['fc8'], res=True)
+        net = AlexNet(0.5, args.classes, ['fc8'])
         load_weight(net, args.pretrain_path)
 
         optimizer= optim.SGD(
@@ -99,10 +137,6 @@ if __name__ == '__main__':
 
     net.cuda()
 
-    if args.verbose is True:
-        print('Training arguments settings')
-        for arg in vars(args):
-            print('\t',arg, getattr(args, arg))
 
     if args.kd_enabled is True:
         if args.low_ratio == 0:
@@ -213,7 +247,8 @@ if __name__ == '__main__':
                     args.result,
                     logger,
                     args.vgg_gap,
-                    args.save
+                    args.save,
+                    args.shared
                )
     elif args.sr_enabled is True:
         if args.low_ratio == 0:
@@ -311,11 +346,11 @@ if __name__ == '__main__':
                 exit
 
             print('\nTraining starts')
-            logger = getlogger(args.log_dir + '/DATASET_{}_HIGH_RES'.format(args.dataset))
+            logger = Logger(args.log_dir + '/PCSRN_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)), stdout= True)
             for arg in vars(args):
-                logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
-            logger.debug('\nTraining High Resolution images')
-            logger.debug('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
+                logger.message('{} - {}'.format(str(arg), str(getattr(args, arg))))
+            logger.message('\nTraining High Resolution images')
+            logger.message('\t on '+args.dataset.upper()+' dataset, with hyper parameters above\n\n')
             training(net, optimizer,
                      args.lr, args.lr_decay, args.epochs, args.ten_batch_eval,
                      train_loader, eval_train_loader, eval_validation_loader, num_training, num_validation,
@@ -338,12 +373,14 @@ if __name__ == '__main__':
                     args.data,
                     args.low_ratio,
                     args.ten_batch_eval,
-                    args.verbose)
+                    args.verbose,
+                    image_norm = args.image_norm)
             except ValueError:
-                print('inapproriate dataset, please put type or stanford')
+                print('inapproriate dataset, please put cub or stanford')
 
             print('\nTraining starts')
-            logger = getlogger(args.log_dir + '/DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
+            logger = Logger(args.log_dir + '/PCSRN_DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)), stdout= True)
+            # logger = getlogger(args.log_dir + '/DATASET_{}_LOW_{}'.format(args.dataset, str(args.low_ratio)))
             for arg in vars(args):
                 logger.debug('{} - {}'.format(str(arg), str(getattr(args, arg))))
             logger.debug('\nTraining Low Resolution images, Low resolution of {}x{}'.format(str(args.low_ratio), str(args.low_ratio)))

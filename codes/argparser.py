@@ -174,6 +174,21 @@ def parse():
         type=str,
         default='None'
     )
+    parser.add_argument(
+        '--image_norm',
+        type = bool
+    )
+    parser.add_argument(
+        '--shared',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--ratios',
+        type= str,
+        default='0.5 0.5 0.5 0.5 0.5'
+    )
+    parser.set_defaults(shared=False)
+    parser.set_defaults(image_norm=False)
     parser.set_defaults(sr_enabled=False)
     parser.set_defaults(bn=False)
     parser.set_defaults(ten_batch_eval=True)
@@ -186,5 +201,19 @@ def parse():
     parser.set_defaults(at_enabled=False)
 
     args = parser.parse_args()
+    args.annotation_train = os.path.join(args.root, args.annotation_train)
+    args.annotation_val = os.path.join(args.root, args.annotation_val)
+    args.data = os.path.join(args.root, args.data)
+    args.result = os.path.join(args.root, args.result)
+    args.log_dir = os.path.join(args.root, args.log_dir)
+
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(args.gpu)
+
+    if args.pretrain_path != 'NONE':
+        args.pretrain_path = os.path.join(args.root, args.pretrain_path)
+    if args.sr_pretrain_path != 'NONE':
+        args.sr_pretrain_path = os.path.join(args.root, args.sr_pretrain_path)
+    args.classes = 200 if args.dataset.lower() == 'cub' else 196
 
     return args

@@ -73,26 +73,38 @@ class Logger(object):
         log.setLevel(self.level)
         log.handlers = []       # No duplicated handlers
         log.propagate = False   # workaround for duplicated logs in ipython
+
         if self.stdout is True:
             log.addHandler(tqdm_handler)
+
         if self.is_test is False:
             fh = logging.FileHandler(filename + '.log')
             log.addHandler(fh)
+            Cmd = 'tail -f ' + filename + '.log'
+            title = filename + '.log'
+            title = title.split('/')[-1]
+            os.system('tmux split-window -h "{}"'.format(Cmd))
+            os.system('tmux select-pane -T "{}"'.format(title))
 
         return log
 
     def message(self, str):
         self.logger.debug(str)
-        pass
 
-    def iteration(self, *args, **kwargs):
+    def iteration(self, losses, **kwargs):
         s = ''
+        s += '[EPOCH' + ' : ' + str(kwargs['EPOCH']) + ']'
+        kwargs.pop('EPOCH', None)
         for k,v in kwargs.items():
             s += '[' + k + ' : ' + str(v) + ']'
 
-        for elem in args:
+        for elem in losses:
             s += '[' + elem.getname() + ' : ' + '{:.5f}'.format(elem.avg) + ']'
         self.logger.debug(s)
+
+    def write_args(self, args):
+        for arg in vars(args):
+            self.message('\t{} - {}'.format(str(arg), str(getattr(args, arg))))
 
 def display_function_stack(function):
     def wrapper(*args, **kwargs):

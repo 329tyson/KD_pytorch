@@ -8,27 +8,15 @@ import cv2
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.autograd import Variable
+from logger import Logger
+from logger import display_function_stack
+from logger import AverageMeter
 
 from collections import OrderedDict
-global glb_grad_at
+glb_grad = {}
 glb_t_grad = {}
 glb_s_grad = {}
 
-class AverageMeter(object):
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
 def isNaN(num):
     if num == float("inf"):
         return True
@@ -51,10 +39,15 @@ def bhatta_loss(output, target, prev=[], mode='numpy'):
     return out
 
 def decay_lr(optimizer, epoch, init_lr, decay_period):
-    lr = init_lr * (0.1 ** (epoch // 300))
+    lr = init_lr * (0.1 ** (epoch // decay_period))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
-    optimizer.param_groups[7]['lr'] = lr * 10
+
+    # for lr decay in SHAREDALEXNET training
+    optimizer.param_groups[4]['lr'] = lr * 10
+
+    # for lr decay in ALEXNET training
+    # optimizer.param_groups[7]['lr'] = lr * 10
 
 def adjust_learning_rate(optimizer, epoch):
     for param_group in optimizer.param_groups:
@@ -221,7 +214,121 @@ def save_grad_t(module, grad_in, grad_out):
     global glb_t_grad
     glb_t_grad[id(module)] = grad_out[0].detach()
 
+def save_grad(module, grad_in, grad_out):
+    global glb_grad
+    glb_grad[id(module)] = grad_out[0].detach()
+@display_function_stack
+def shared_training(
+    net,
+    optim_hr,
+    optim_lr,
+    ten_crop,
+    training_generator,
+    eval_trainset_generator,
+    eval_validationset_generator,
+    num_training,
+    num_validation,
+    result_path,
+    epochs,
+    low_ratio,
+    init_lr,
+    lr_decay,
+    logger = None
+    ):
+    print '\n\n\n\n'
+    celoss = nn.CrossEntropyLoss()
+    max_accuracy = 0.
+    hr_loss = AverageMeter('hr_loss')
+    lr_loss = AverageMeter('lr_loss')
+    acc_validation = AverageMeter('v_acc')
+    net.train()
+    for epoch in range(epochs):
+        hr_loss.reset()
+        lr_loss.reset()
+        # decay_lr(optim_total, epoch, init_lr, lr_decay)
+        decay_lr(optim_hr, epoch, init_lr, lr_decay)
+        decay_lr(optim_lr, epoch, init_lr, lr_decay)
+        training_pbar = tqdm(enumerate(training_generator), desc='Training ', bar_format='{desc:<5} [R {rate_fmt}]', leave=False)
 
+        for i, (x, x_low, y) in training_pbar:
+            optim_hr.zero_grad()
+            optim_lr.zero_grad()
+
+            x = x.cuda().float()
+            x_low = x_low.cuda().float()
+            y = y.cuda() - 1
+
+            hr_out, lr_out, hr_features, lr_features = net(x_low, x)
+            gt_hr_loss = celoss(hr_out, y)
+            gt_lr_loss = celoss(lr_out, y)
+
+            hr_loss.update(gt_hr_loss.item(), x.size(0))
+            lr_loss.update(gt_lr_loss.item(), x_low.size(0))
+
+            loss = gt_hr_loss + gt_lr_loss
+            loss.backward()
+            training_pbar.set_description('TRAINING, E[{}/{}]B[{}/{}][HIGH_GT : {:.3f}][LOW_GT : {:.3f}]'.format(epoch + 1, str(epochs), i + 1, str(int(num_training / 128)) ,hr_loss.avg, lr_loss.avg ))
+            training_pbar.update()
+            training_pbar.refresh()
+            # from time import sleep; sleep(1)
+
+            optim_hr.step()
+            optim_lr.step()
+
+
+        logger.iteration(hr_loss, lr_loss, E=str(epoch+1) + '/' + str(epochs))
+        if (epoch + 1) % 10 > 0:
+            continue
+        hit_training = 0
+        hit_validation = 0
+        test_validation_pbar = tqdm(eval_validationset_generator, desc='Validation', bar_format='{desc:<5} [R {rate_fmt}]', leave=False)
+        # for i, (x_low, y) in enumerate(test_training_pbar): # To CUDA tensors
+            # x_low = torch.squeeze(x_low)
+            # x_low = x_low.cuda().float()
+            # y -= 1
+
+            # # Network output
+            # _, output ,_, _= net(x_low, x)
+
+            # if ten_crop is True:
+                # prediction = torch.mean(output, dim=0)
+                # prediction = prediction.cpu().detach().numpy()
+
+                # if np.argmax(prediction) == y:
+                    # hit_training += 1
+            # else:
+                # _, prediction = torch.max(output, 1)
+                # prediction = prediction.cpu().detach().numpy()
+                # hit_training += (prediction == y.numpy()).sum()
+                # test_training_pbar.set_description('TESTING TRAINING SET, PROCESSING BATCH[{}/{}][ACC:{}]'.format(i + 1, str(num_training)))
+        acc_validation.reset()
+        for  i, (x_low, y) in enumerate(test_validation_pbar):
+            test_validation_pbar.set_description('TRAINING, E[{}/{}]B[{}/{}]'.format(epoch + 1, str(epochs), i + 1, str(num_validation)))
+            test_validation_pbar.update()
+            test_validation_pbar.refresh()
+            # To CUDA tensors
+            x_low = torch.squeeze(x_low)
+            x_low = x_low.cuda().float()
+            y -= 1
+
+            # Network output
+            _, output, _, _ = net(x_low, x)
+
+            if ten_crop is True:
+                prediction = torch.mean(output, dim=0)
+                prediction = prediction.cpu().detach().numpy()
+
+                if np.argmax(prediction) == y:
+                    hit_validation += 1
+            else:
+                _, prediction = torch.max(output, 1)
+                prediction = prediction.cpu().detach().numpy()
+                hit_validation += (prediction == y.numpy()).sum()
+        acc_validation.update(float(hit_validation)/float(num_validation), 1)
+        if max_accuracy < acc_validation.avg * 100 : max_accuracy = acc_validation
+        logger.iteration(acc_validation, E=str(epoch+1) + '/' + str(epochs))
+    logger.message('Finished Training\n')
+    logger.message('MAX_ACCURACY : {:.2f}'.format(max_accuracy * 100))
 def training(
     net,
     optimizer,
@@ -253,6 +360,7 @@ def training(
         else:
             decay_lr_vgg(optimizer, epoch, init_lr, lr_decay)
         net.train()
+        # for x, y in training_generator:
         for x, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
@@ -262,10 +370,7 @@ def training(
             optimizer.zero_grad()
 
             # Network output
-            output, _ = net(x)
-
-            # Comment only when AlexNet returns only one val
-            # output = output[0]
+            output, features = net(x)
 
             loss = lossfunction(output, y)
             loss.backward()
@@ -273,21 +378,23 @@ def training(
         net.eval()
         # Test only 10, 20, 30... epochs
         if (epoch + 1) % 10 > 0 :
-            logger.debug('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
+            logger.message('[EPOCH{}][Training] loss : {}'.format(epoch+1,loss))
             continue
         hit_training = 0
         hit_validation = 0
-        for x, y in eval_trainset_generator:
+        eval_training_pbar = tqdm(eval_trainset_generator)
+        eval_validation_pbar = tqdm(eval_validationset_generator)
+        for x, y in eval_training_pbar:
             # To CUDA tensors
             x = torch.squeeze(x)
             x = x.cuda().float()
             y -= 1
 
             # Network output
-            output, _ = net(x)
+            output, features = net(x)
 
             # Comment only when AlexNet returns only one val
-            output = output[0]
+            # output = output[0]
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -301,7 +408,7 @@ def training(
                 hit_training += (prediction == y.numpy()).sum()
 
 
-        for x, y in eval_validationset_generator:
+        for x, y in eval_validation_pbar:
             # To CUDA tensors
             x = torch.squeeze(x)
             x = x.cuda().float()
@@ -311,7 +418,7 @@ def training(
             output, _ = net(x)
 
             # Comment only when AlexNet returns only one val
-            output = output[0]
+            # output = output[0]
 
             if ten_crop is True:
                 prediction = torch.mean(output, dim=0)
@@ -326,14 +433,14 @@ def training(
 
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-        logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
+        logger.message('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
+        logger.message('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
-        logger.debug('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
+        logger.message('    Validation set accuracy : {0:.2f}%, for {1:}/{2:}\n'
               .format(acc_validation*100, hit_validation, num_validation))
-        if acc_validation < 1. :
-            logger.error('This combination seems not working, stop training')
-            exit(1)
+        # if acc_validation < 1. :
+            # logger.error('This combination seems not working, stop training')
+            # exit(1)
         if save:
             # torch.save(net.state_dict(), result_path + modelName + str(epoch + 1) + '_epoch_acc_' + str(acc_validation*100) +'.pt')
             torch.save(net.state_dict(),
@@ -358,7 +465,8 @@ def training_KD(
     result_path,
     logger,
     vgg_gap,
-    save
+    save,
+    shared
     ):
     lossfunction = nn.CrossEntropyLoss()
     writer = SummaryWriter()
@@ -371,9 +479,8 @@ def training_KD(
     teacher_net.eval()
     kdloss = AverageMeter()
     gtloss = AverageMeter()
-    convloss = AverageMeter()
-    prev = []
-    bhlosses = []
+    gtloss_high = AverageMeter()
+    gtloss_small = AverageMeter()
 
 
     temperature2 = 5
@@ -385,35 +492,29 @@ def training_KD(
         else:
             decay_lr_vgg(optimizer, epoch, init_lr, lr_decay)
         net.train()
-        for x, x_low, y in training_generator:
+        kdloss.reset()
+        gtloss.reset()
+        gtloss_high.reset()
+        gtloss_small.reset()
+        # for x, x_low, y in training_generator:
+        for x, x_low, x_small, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
             x_low = x_low.cuda().float()
+            x_small = x_small.cuda().float()
             y = y.cuda() - 1
 
             # teacher = teacher_net(x)
             teacher, t_feature = teacher_net(x)
             # t_feature = t_feature.detach()
 
-            # Calculate gradient && Backpropagate
             optimizer.zero_grad()
 
             # Network output
             student, s_feature = net(x_low)
 
+
             # Calculate Region KD between CAM region of teacher & student
-
-            t_convs = []
-            s_convs = []
-
-            for k,v in t_feature.items():
-                t_convs.append(v)
-            for k,v in s_feature.items():
-                s_convs.append(v)
-
-            # BH_loss = bhatta_loss(t_convs[0], s_convs[0], mode ='tensor')
-            MSE_loss = 0
-
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                      F.softmax(teacher / temperature, dim=1))
@@ -423,9 +524,22 @@ def training_KD(
             GT_loss = lossfunction(student, y)
 
 
+            if epoch < lr_decay :
+                # comment if you only train LR images
+                student_high, s_features_high = net(x)
+                GT_loss_high = lossfunction(student_high, y)
+                student_small, _ = net(x_small)
+                GT_loss_small = lossfunction(student_small, y)
+                gtloss_high.update(GT_loss_high.item(), x_low.size(0))
+                gtloss_small.update(GT_loss_small.item(), x_low.size(0))
+            else :
+                GT_loss_high = 0
+                GT_loss_small = 0
+                gtloss_high.update(0, x_low.size(0))
+                gtloss_small.update(0, x_low.size(0))
             # loss = KD_loss + GT_loss - BH_loss
-            loss = KD_loss + GT_loss
-            convloss.update(0)
+            loss = KD_loss + GT_loss + GT_loss_high + GT_loss_small
+            # loss = KD_loss + GT_loss
             if isNaN(loss.item()) is True:
                 logger.error("This combination failed due to the NaN|inf loss value")
                 exit(1)
@@ -433,38 +547,14 @@ def training_KD(
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
 
-            # for i in range(len(t_convs)):
-                # t_conv = t_convs[i].cpu().detach().numpy()
-                # s_conv = s_convs[i].cpu().detach().numpy()
-                # if len(prev) < i + 1:
-                    # prev.append(np.zeros(t_conv.shape))
-                    # bhlosses.append(bhatta_loss(t_conv, s_conv, prev[i]))
-                # else:
-                    # bhlosses[i] = bhatta_loss(t_conv, s_conv, prev[i])
-
-            # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
-                         # '\t[CONV1 Distance : {}]'
-                         # '\t[CONV2 Distance : {}]'
-                         # '\t[CONV3 Distance : {}]'
-                         # '\t[CONV4 Distance : {}]'
-                         # '\t[CONV5 Distance : {}]'
-                         # .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg,
-                                 # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-            # logger.debug('\t[CONV1 Distance : {}]'
-                         # '\t[CONV2 Distance : {}]'
-                         # '\t[CONV5 Distance : {}]'
-                         # '\t[CONV4 Distance : {}]'
-                         # '\t[CONV5 Distance : {}]'
-                         # .format(bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-
             loss.backward()
             optimizer.step()
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
             # print('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_LOSS : {:.3f}]'
-                         .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][GT_loss_high : {:.3f}][GT_loss_small : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, gtloss_high.avg,gtloss_small.avg))
             # logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][conv_l2_loss : {:.3f}]\n'
                          # '\t[CONV1 Distance : {:.2f}]'
                          # '\t[CONV2 Distance : {:.2f}]'
@@ -475,7 +565,7 @@ def training_KD(
                                  # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
             writer.add_scalars('losses', {'KD_loss':kdloss.avg,
                                           'GT_loss':gtloss.avg,
-                                          'MSE_loss':convloss.avg,
+                                          'GT_high':gtloss_high.avg,
                                           }, epoch + 1)
             continue
         # Test
@@ -566,8 +656,8 @@ def training_KD(
                      # '\t[CONV5 BHLOSS : {:.3f}]'
                      # .format(epoch+1,kdloss.avg, gtloss.avg,
                              # bhlosses[0], bhlosses[1], bhlosses[2], bhlosses[3],bhlosses[4]))
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
-                     .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][GT_loss_high : {:.3f}][GT_loss_small : {:.3f}]'
+                         .format(epoch+1,kdloss.avg, gtloss.avg, gtloss_high.avg,gtloss_small.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'
               .format(acc_training*100, hit_training, num_training))
@@ -591,7 +681,7 @@ def getGcam(feature, grad):
         gc -= gc.min()
         gc /= gc.max()
 
-    gcam[gcam<0.5] = 0.
+    # gcam[gcam<0.5] = 0.
     return gcam
 
 
@@ -686,21 +776,6 @@ def training_Gram_KD(
 
     teacher_net.eval()
 
-
-    # To calculate and save gradient attetion, register backward_hook
-    teacher_net.conv1.register_backward_hook(save_grad_t)
-    teacher_net.conv2.register_backward_hook(save_grad_t)
-    teacher_net.conv3.register_backward_hook(save_grad_t)
-    teacher_net.conv4.register_backward_hook(save_grad_t)
-    teacher_net.conv5.register_backward_hook(save_grad_t)
-
-    net.conv1.register_backward_hook(save_grad_s)
-    net.conv2.register_backward_hook(save_grad_s)
-    net.conv3.register_backward_hook(save_grad_s)
-    net.conv4.register_backward_hook(save_grad_s)
-    net.conv5.register_backward_hook(save_grad_s)
-
-
     for epoch in range(epochs):
         show = False
         loss= 0.
@@ -709,78 +784,44 @@ def training_Gram_KD(
         gtloss.reset()
         convloss.reset()
         net.train()
-        for x, x_low, y, path in training_generator:
+        for x, x_low, y in training_generator:
             # To CUDA tensors
             x = x.cuda().float()
-            x = Variable(x, requires_grad = True)
             x_low = x_low.cuda().float()
 
             y = y.cuda() - 1
 
+            optimizer.zero_grad()
+            net.zero_grad()
+
             teacher, t_features = teacher_net(x)
 
-            one_hot_y = torch.zeros(teacher.shape).float().cuda()
-            for i in range(teacher.shape[0]):
-                one_hot_y[i][y[i]] = 1.0
-
-            teacher_net.zero_grad()
-            teacher.backward(gradient=one_hot_y, retain_graph=True)
-
-            t_conv1 = t_features['conv1'].detach()
-            t_conv2 = t_features['conv2'].detach()
-            t_conv3 = t_features['conv3'].detach()
-            t_conv4 = t_features['conv4'].detach()
-            t_conv5 = t_features['conv5'].detach()
-
-            # Calculate gradient && Backpropagate
-            optimizer.zero_grad()
+            t_conv5 = t_features['conv5']
 
             # Network output
             student, s_features = net(x_low)
-            net.zero_grad()
-            student.backward(gradient=one_hot_y, retain_graph=True)
 
-
-            s_conv1 = s_features['conv1'].detach()
-            s_conv2 = s_features['conv2'].detach()
-            s_conv3 = s_features['conv3'].detach()
-            s_conv4 = s_features['conv4'].detach()
-            s_conv5 = s_features['conv5'].detach()
-
-            t_gcam4 = getGcam(t_conv4, glb_t_grad[id(teacher_net.conv4)])
-            s_gcam4 = getGcam(s_conv4, glb_s_grad[id(net.conv4)])
-
-            t_gcam5 = getGcam(t_conv5, glb_t_grad[id(teacher_net.conv5)])
-            s_gcam5 = getGcam(s_conv5, glb_s_grad[id(net.conv5)])
-
-            #Visualize gradcams
-            if show is False:
-                t_images = x[:3]
-                s_images = x_low[:3]
-                t_cams = t_gcam5[:3]
-                s_cams = s_gcam5[:3]
-                write_gradcam(t_cams, t_images, writer, epoch)
-                write_gradcam(s_cams, s_images, writer, epoch,mode='s')
-                show =True
-
-
+            s_conv5 = s_features['conv5']
 
             KD_loss = nn.KLDivLoss()(F.log_softmax(student / temperature, dim=1),
                                   F.softmax(teacher / temperature, dim=1))    # teacher's hook is called in every loss.backward()
                                   # F.softmax(teacher.detach() / temperature, dim=1))
 
             KD_loss = torch.mul(KD_loss, temperature * temperature)
-            # KD_loss = .0
 
-            GT_loss = ce_loss(student, y)
+            student_high, s_features_high = net(x)
 
-            GRAM_loss = .0
+            if epoch < lr_decay:
+                GT_loss = ce_loss(student, y) + ce_loss(student_high, y)
+            else:
+                GT_loss = ce_loss(student, y)
 
-            GRAM_loss = (mse_loss(t_gcam5, s_gcam5)  + mse_loss(t_gcam4, s_gcam4)) * 169
-            loss = KD_loss + GT_loss + GRAM_loss
+            featureMSE = mse_loss(s_conv5, t_conv5)
+
+            loss = KD_loss + GT_loss + featureMSE
             kdloss.update(KD_loss.item(), x_low.size(0))
             gtloss.update(GT_loss.item(), x_low.size(0))
-            convloss.update(GRAM_loss.item(), x_low.size(0))
+            convloss.update(featureMSE.item(), x_low.size(0))
 
             if loss == float('inf') or loss != loss:
                 logger.error('Loss is infinity, stop!')
@@ -791,13 +832,12 @@ def training_Gram_KD(
             # else:
             #     print KD_loss.data.cpu(), GT_loss.data.cpu()
 
-            net.zero_grad()
             loss.backward()
             optimizer.step()
         net.eval()
 
         if (epoch + 1) % 10 > 0 :
-            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+            logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][Feature_loss : {:.3f}]'
                      .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
             continue
         # Test
@@ -848,7 +888,7 @@ def training_Gram_KD(
         # Trace
         acc_training = float(hit_training) / num_training
         acc_validation = float(hit_validation) / num_validation
-        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][MSE_loss : {:.3f}]'
+        logger.debug('[EPOCH{}][Training][KD loss : {:.3f}][GT_loss : {:.3f}][Feature_loss : {:.3f}]'
                      .format(epoch+1,kdloss.avg, gtloss.avg, convloss.avg))
         # logger.debug('Epoch : {}, training loss : {}'.format(epoch + 1, loss))
         logger.debug('    Training   set accuracy : {0:.2f}%, for {1:}/{2:}'

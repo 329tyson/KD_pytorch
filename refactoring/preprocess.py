@@ -5,7 +5,7 @@ from torch.utils import data
 def load_weight(net, pretrained_path, fit=True, shared = False, ratios = []):
     if pretrained_path == 'NONE':
         print('\tloading weight from bvlc_alexnet.npy')
-        pretrained= np.load('bvlc_alexnet.npy', encoding='latin1').item()
+        pretrained= np.load('./models/bvlc_alexnet.npy', encoding='latin1').item()
         converted = net.state_dict()
         for lname, val in pretrained.items():
             if 'conv' in lname:
@@ -99,10 +99,8 @@ def generate_dataset(
     annotation_val,
     image_path,
     low_ratio,
-    ten_crop,
-    verbose,
     is_KD = False,
-    image_norm = False):
+    ):
     # Training Params
     params = {'batch_size': batch_size,
               'shuffle': True,
@@ -118,21 +116,17 @@ def generate_dataset(
                'shuffle': True,
                'num_workers': 6,
                'drop_last' : True}
-    if ten_crop is False:
-        eval_params['batch_size'] = batch_size
 
     if dataset.lower() == 'cub':
         #generate CUB datasets
         print('\t generating CUB dataset')
-        training_set = Dataset(dataset, annotation_train, image_path, low_ratio, 'Train', False,  KD_flag = is_KD, image_norm = image_norm)
-        eval_trainset = Dataset(dataset, annotation_train, image_path, low_ratio, 'Validation', ten_crop)
-        eval_validationset = Dataset(dataset, annotation_val, image_path, low_ratio, 'Validation', ten_crop)
+        training_set       = Dataset(dataset, annotation_train, image_path, low_ratio, 'Train', KD_flag = is_KD)
+        eval_trainset      = Dataset(dataset, annotation_train, image_path, low_ratio, 'Validation')
+        eval_validationset = Dataset(dataset, annotation_val, image_path, low_ratio, 'Validation')
 
-        num_training = len(training_set)
-        num_validation = len(eval_validationset)
 
-        training_generator = data.DataLoader(training_set, **params)
-        eval_trainset_generator = data.DataLoader(eval_trainset, **eval_params)
+        training_generator           = data.DataLoader(training_set, **params)
+        eval_trainset_generator      = data.DataLoader(eval_trainset, **eval_params)
         eval_validationset_generator = data.DataLoader(eval_validationset, **eval_params)
 
     elif dataset.lower() == 'stanford':
@@ -152,5 +146,5 @@ def generate_dataset(
     else:
         raise ValueError
 
-    return training_generator, eval_trainset_generator, eval_validationset_generator, num_training, num_validation
+    return [training_generator, eval_trainset_generator, eval_validationset_generator]
 

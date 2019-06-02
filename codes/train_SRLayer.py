@@ -56,6 +56,7 @@ def get_aruments():
     parser.add_argument("--l2", default=False, action= 'store_true')
     parser.add_argument("--image_norm", default=False, action= 'store_true')
     parser.add_argument("--regression_features",default=None )
+    parser.add_argument("--weight", type=float, default=1.)
 
     parser.set_defaults(ten_batch_eval=True)
     parser.set_defaults(verbose=True)
@@ -115,35 +116,35 @@ def main():
         is_KD = True,
         image_norm = args.image_norm)
 
-    net = alexnet.SRLayer()
+    gen = alexnet.SRLayer()
     dis = alexnet.Discriminator()
     mse_loss = nn.MSELoss()
 
-    net = net.cuda()
+    gen = gen.cuda()
     dis = dis.cuda()
     mse_loss = mse_loss.cuda()
 
 
     print("===> Setting Optimizer")
     # g_optimizer = optim.Adam(
-        # [{'params': net.sconv1.weight, 'lr': 1.0 * args.lr},
-         # {'params': net.sconv1.bias, 'lr': 0.1 * args.lr},
-         # {'params': net.sconv2.weight, 'lr': 1.0 * args.lr},
-         # {'params': net.sconv2.bias, 'lr': 0.1 * args.lr},
-         # {'params': net.sconv3.weight, 'lr': 0.01 * args.lr},
-         # {'params': net.sconv3.bias, 'lr': 0.001 * args.lr}])
+        # [{'params': gen.sconv1.weight, 'lr': 1.0 * args.lr},
+         # {'params': gen.sconv1.bias, 'lr': 0.1 * args.lr},
+         # {'params': gen.sconv2.weight, 'lr': 1.0 * args.lr},
+         # {'params': gen.sconv2.bias, 'lr': 0.1 * args.lr},
+         # {'params': gen.sconv3.weight, 'lr': 0.01 * args.lr},
+         # {'params': gen.sconv3.bias, 'lr': 0.001 * args.lr}])
     d_optimizer = optim.Adam(
         [{'params': dis.parameters(), 'lr':0.1 * args.lr}])
     g_optimizer = optim.Adam(
-        [{'params': net.parameters(), 'lr':0.1 * args.lr}])
+        [{'params': gen.parameters(), 'lr':0.1 * args.lr}])
 
     teacher = alexnet.AlexNet(0.5, 200, ['fc8'])
     load_weight(teacher, args.pretrain_path)
     teacher.cuda()
 
-    teacher.conv5.register_backward_hook(save_grad)
+    # teacher.conv5.register_backward_hook(save_grad)
     teacher.eval()
-    net.train()
+    gen.train()
     dis.train()
 
     GLoss = AverageMeter()
@@ -152,6 +153,7 @@ def main():
     PLoss = AverageMeter()
 
     print 'Feature regression for convs : {}'.format(args.regression_features)
+    print 'regression convs length {}'.format(len(args.regression_features.split()))
     for epoch in range(args.epochs):
         adjust_learning_rate(g_optimizer, epoch, args)
         adjust_learning_rate(d_optimizer, epoch, args)
@@ -174,14 +176,11 @@ def main():
             x = x.cuda().float()
             y = y.cuda() - 1
 
-            net.zero_grad()
+            gen.zero_grad()
             teacher.zero_grad()
             dis.zero_grad()
             g_optimizer.zero_grad()
             d_optimizer.zero_grad()
-
-
-            output, features = teacher(x)
 
 
             ###################################################
@@ -189,37 +188,33 @@ def main():
             ###################################################
             for p in dis.parameters():
                 p.requires_grad = False
-            for p in net.parameters():
+            for p in gen.parameters():
                 p.requires_grad = True
 
-            if args.gradcam:
-                one_hot_y = torch.zeros(output.shape).float().cuda()
-                for i in range(output.shape[0]):
-                    one_hot_y[i][y[i]] = 1.0
+            sr_image, additive = gen(x_low)
 
-                output.backward(gradient = one_hot_y, retain_graph = True)
-                gcams = compute_gradCAM(features['conv5'].detach(), glb_grad_at[id(teacher.conv5)])
-            sr_image, additive = net(x_low)
-            val_false = dis(sr_image)
-
+            output, features = teacher(x)
             s_output, sr_features = teacher(sr_image)
-            # gradient-oriented SR
+
+            val_false = dis(sr_image)
+            ploss = 0.
             for conv in args.regression_features.split():
-                tconv = features['conv' + str(conv)]
-                sconv = sr_features['conv' + str(conv)]
-                ploss = mse_loss(tconv, sconv)
-            # ploss = torch.sub(features['conv5'], sr_features['conv5'])
-            # ploss = torch.mul(ploss, ploss)
-            # if args.gradcam:
-                # ploss = torch.mul(ploss, torch.unsqueeze(gcams, dim =1))
-            # ploss = torch.mean(ploss)
+                tconv = features['conv' + str(conv)].detach()
+                sconv = sr_features['conv' + str(conv)].detach()
+                # mseconv = torch.sub(tconv, sconv)
+                # mseconv = torch.mul(mseconv, mseconv)
+                # mseconv = torch.mean(torch.mul(mseconv, tconv))
+                # ploss += torch.div(mseconv, len(args.regression_features.split()))
+                ploss += torch.div(mse_loss(tconv, sconv), len(args.regression_features.split()))
+
+            GAN_weight = args.weight
+            d_loss_g = -torch.mean(torch.log(val_false)) * GAN_weight
+            # d_loss_g = -torch.mean(torch.log(val_false)) * 0.001
+            genloss = d_loss_g + ploss
             if args.l2:
                 mseloss = mse_loss(sr_image, x)
-                ploss += mseloss
-
-            d_loss_g = -torch.mean(torch.log(val_false)) * 0.001 + ploss
-            # d_loss_g = -torch.mean(torch.log(val_false)) * 0.001
-            d_loss_g.backward()
+                genloss += mseloss
+            genloss.backward()
 
             ###################################################
             # Update Discriminator                            #
@@ -227,14 +222,14 @@ def main():
             for p in dis.parameters():
                 p.requires_grad = True
 
-            for p in net.parameters():
+            for p in gen.parameters():
                 p.requires_grad = False
 
             sr_image = sr_image.detach()
             val_true = dis(x)
             val_false = dis(sr_image)
             ones = torch.ones(4,1,1,1).cuda()
-            d_loss_d = -torch.mean(torch.log(val_true)) * 0.001 - torch.mean(torch.log(torch.sub(ones ,val_false))) * 0.001
+            d_loss_d = -torch.mean(torch.log(val_true)) * GAN_weight - torch.mean(torch.log(torch.sub(ones ,val_false))) * GAN_weight
             d_loss_d.backward()
             if show is False:
                 for i in range(3):
@@ -273,7 +268,8 @@ def main():
             if loss == float('inf') or loss != loss:
                 exit(1)
             g_optimizer.step()
-            d_optimizer.step()
+            if d_loss_d.item() > 0.0001:
+                d_optimizer.step()
 
             loss_value += loss.data.cpu()
             PLoss.update(ploss.item(), x.size(0))
@@ -304,9 +300,9 @@ def main():
         # print "===> Epoch[{}/{}]: GradCAMloss: {:3} DisLoss: {:3}".format(epoch, args.epochs, grad_loss.item(), d_loss.item())
 
         if epoch % 10 == 0 and epoch != 0:
-            print ("Save net (epoch:", epoch, ")")
-            torch.save(net.state_dict(), osp.join('./models/', 'SR_' + args.message + '_' +  str(epoch) + '.pth'))
-            # torch.save(net.state_dict(), osp.join('./models/', model_name + '_' +  str(epoch) + 'epoh.pth'))
+            print ("Save gen (epoch:", epoch, ")")
+            torch.save(gen.state_dict(), osp.join('./models/', 'SR_' + args.message + '_' +  str(epoch) + '.pth'))
+            # torch.save(gen.state_dict(), osp.join('./models/', model_name + '_' +  str(epoch) + 'epoh.pth'))
 
 
 if __name__ == "__main__":

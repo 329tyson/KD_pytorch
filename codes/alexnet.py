@@ -92,15 +92,13 @@ class SRLayer(nn.Module):
         layer.bias.data.fill_(0)
         return layer
 class AlexNet(nn.Module):
-    def __init__(self, keep_prob, num_classes, skip_layer,
-                 res=False):
+    def __init__(self, keep_prob, num_classes, skip_layer):
         super(AlexNet, self).__init__()
         # Parse input arguments into class variables
         self.NUM_CLASSES = num_classes
         self.KEEP_PROB = keep_prob
         self.SKIP_LAYER = skip_layer
         self.var_dict = {}
-        self.res = res
 
         # self.weights_dict = np.load(self.WEIGHTS_PATH, encoding='latin1').item()
         self.load=True
@@ -116,25 +114,31 @@ class AlexNet(nn.Module):
         x = self.relu1(x)
         x = self.norm1(x)
         x = self.pool1(x)
+        # print 'conv shape : {}'.format(x.shape)
 
         x = self.conv2(x)
         conv2 = x
         x = self.relu2(x)
         x = self.norm2(x)
         x = self.pool2(x)
+        # print 'conv shape : {}'.format(x.shape)
 
+        conv3_input = x
         x = self.conv3(x)
         conv3 = x
         x = self.relu3(x)
+        # print 'conv shape : {}'.format(x.shape)
 
         x = self.conv4(x)
         conv4 = x
         x = self.relu4(x)
+        # print 'conv shape : {}'.format(x.shape)
 
         x = self.conv5(x)
         conv5 = x
         x = self.relu5(x)
         x = self.pool5(x)
+        # print 'conv shape : {}'.format(x.shape)
 
         x = x.view(x.size(0), 256 * 6 * 6)
 
@@ -188,16 +192,6 @@ class AlexNet(nn.Module):
 
         self.fc8 = self.init_layer('fc8', nn.Linear(4096, self.NUM_CLASSES))
 
-
-        if self.res:
-        # Residual_Conv5
-            self.res_conv1 = self.init_layer('res_conv1', nn.Conv2d(256, 384, kernel_size=9, padding=4))
-            self.res_conv2 = self.init_layer('res_conv2', nn.Conv2d(384, 384, kernel_size=5, padding=2))
-            self.res_conv3 = self.init_layer('res_conv3', nn.Conv2d(384, 256, kernel_size=5, padding=2))
-
-            self.res_relu1 = nn.ReLU(inplace=True)
-            self.res_relu2 = nn.ReLU(inplace=True)
-        # Resiudual Conv End
 
         print('[AlexNet]')
         print('pool1', self.pool1)
@@ -277,7 +271,6 @@ class RACNN(nn.Module):
                     jj += 1
                     if k.requires_grad:
                         yield k
-
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -287,12 +280,18 @@ class Discriminator(nn.Module):
         # 113 x 113
         self.sconv2 = self.init_layer(nn.Conv2d(64, 128, kernel_size=5, padding=1, stride = 2))
         self.bn2 = nn.BatchNorm2d(128)
+
         # 56 x 56
+        # self.sconv3 = self.init_layer(nn.Conv2d(128,256, kernel_size=4, padding=1, stride=4))
+        # self.bn3 = nn.BatchNorm2d(256)
+
         self.sconv3 = self.init_layer(nn.Conv2d(128, 256, kernel_size=3, stride = 2, padding = 1))
         self.bn3 = nn.BatchNorm2d(256)
+
         # 28 x 28
         self.sconv4 = self.init_layer(nn.Conv2d(256, 512, kernel_size=3, stride = 2, padding =1))
         self.bn4 = nn.BatchNorm2d(512)
+
         # 14 x 14
         self.fconv = self.init_layer(nn.Conv2d(512, 1, kernel_size = 14))
         # self.fconv = self.init_layer(nn.Conv2d(256, 1, kernel_size = 56))
@@ -350,3 +349,210 @@ class Discriminator(nn.Module):
         nn.init.xavier_uniform_(layer.weight)
         layer.bias.data.fill_(0)
         return layer
+class SharedAlexNet(nn.Module):
+    def __init__(self, ratios):
+        super(SharedAlexNet, self).__init__()
+        self.ratios = ratios
+        self.remaining_ratios = [1 - ratio for ratio in self.ratios]
+
+        self.in_channels = [3, 96, 256, 384, 384]
+        self.out_channels = [96, 256, 384, 384, 256]
+        self.kernel_size= [11, 5, 3, 3 ,3]
+        self.padding = [0, 2 ,1 ,1 ,1]
+        self.stride = [4, 1, 1, 1, 1]
+        self.groups = [1, 2, 1, 2, 2]
+
+        self.KEEP_PROB = 0.5
+        self.NUM_CLASSES = 200
+
+        self.create_network()
+    def sequencing(self, block):
+        indexes = [block.shape[1] * 0.25, block.shape[1] * 0.5, block.shape[1] * 0.75, block.shape[1]]
+        indexes = [int(index) for index in indexes]
+
+        blocks = []
+        blocks.append(block[:, :indexes[0]])
+        blocks.append(block[:, indexes[0]:indexes[1]])
+        blocks.append(block[:, indexes[1]:indexes[2]])
+        blocks.append(block[:, indexes[2]:])
+
+        return torch.cat((blocks[0], blocks[2], blocks[3], blocks[1]), 1)
+    def forward(self, lr, hr):
+        # HR part
+        hr_out = torch.cat((self.convs_hr[0](hr), self.convs_shared[0](hr)), 1)
+        lr_out = torch.cat((self.convs_lr[0](lr), self.convs_shared[0](lr)), 1)
+
+        hr_conv1 = hr_out
+        lr_conv1 = lr_out
+
+        hr_out = self.relu1(hr_out)
+        hr_out = self.norm1(hr_out)
+        hr_out = self.pool1(hr_out)
+
+        lr_out = self.relu1(lr_out)
+        lr_out = self.norm1(lr_out)
+        lr_out = self.pool1(lr_out)
+        # print 'hr_out.shape : {} lr_out.shape : {}'.format(hr_out.shape, lr_out.shape)
+
+        # hr_out = torch.cat((self.convs_hr[1](hr_out), self.convs_shared[1](hr_out)), 1)
+        hr_out = self.sequencing(torch.cat((self.convs_hr[1](hr_out), self.convs_shared[1](hr_out)), 1))
+        lr_out = self.sequencing(torch.cat((self.convs_lr[1](lr_out), self.convs_shared[1](lr_out)), 1))
+
+        hr_conv2 = hr_out
+        lr_conv2 = lr_out
+
+        hr_out = self.relu2(hr_out)
+        hr_out = self.norm2(hr_out)
+        hr_out = self.pool2(hr_out)
+
+        lr_out = self.relu2(lr_out)
+        lr_out = self.norm2(lr_out)
+        lr_out = self.pool2(lr_out)
+        # print 'hr_out.shape : {} lr_out.shape : {}'.format(hr_out.shape, lr_out.shape)
+
+        hr_out = torch.cat((self.convs_hr[2](hr_out), self.convs_shared[2](hr_out)), 1)
+        lr_out = torch.cat((self.convs_lr[2](lr_out), self.convs_shared[2](lr_out)), 1)
+
+        hr_conv3 = hr_out
+        lr_conv3 = lr_out
+
+        hr_out = self.relu3(hr_out)
+        lr_out = self.relu3(lr_out)
+        # print 'hr_out.shape : {} lr_out.shape : {}'.format(hr_out.shape, lr_out.shape)
+
+        hr_out = self.sequencing(torch.cat((self.convs_hr[3](hr_out), self.convs_shared[3](hr_out)), 1))
+        lr_out = self.sequencing(torch.cat((self.convs_lr[3](lr_out), self.convs_shared[3](lr_out)), 1))
+
+        hr_conv4 = hr_out
+        lr_conv4 = lr_out
+
+        hr_out = self.relu4(hr_out)
+        lr_out = self.relu4(lr_out)
+        # print 'hr_out.shape : {} lr_out.shape : {}'.format(hr_out.shape, lr_out.shape)
+
+        hr_out = self.sequencing(torch.cat((self.convs_hr[4](hr_out), self.convs_shared[4](hr_out)), 1))
+        lr_out = self.sequencing(torch.cat((self.convs_lr[4](lr_out), self.convs_shared[4](lr_out)), 1))
+
+        hr_conv5 = hr_out
+        lr_conv5 = lr_out
+
+        hr_out = self.relu5(hr_out)
+        hr_out = self.pool5(hr_out)
+
+        lr_out = self.relu5(lr_out)
+        lr_out = self.pool5(lr_out)
+        # print 'hr_out.shape : {} lr_out.shape : {}'.format(hr_out.shape, lr_out.shape)
+
+        hr_out = hr_out.view(hr_out.size(0), 256 * 6 * 6)
+        lr_out = lr_out.view(lr_out.size(0), 256 * 6 * 6)
+
+        # FC_HR
+        hr_out = self.fc6_hr(hr_out)
+        hr_out = self.relu6_hr(hr_out)
+        hr_out = self.dropout6_hr(hr_out)
+        hr_out = self.fc7_hr(hr_out)
+        hr_out = self.relu7_hr(hr_out)
+        hr_out = self.dropout7_hr(hr_out)
+        hr_out = self.fc8_hr(hr_out)
+
+        # FC_LR
+        lr_out = self.fc6_lr(lr_out)
+        lr_out = self.relu6_lr(lr_out)
+        lr_out = self.dropout6_lr(lr_out)
+        lr_out = self.fc7_lr(lr_out)
+        lr_out = self.relu7_lr(lr_out)
+        lr_out = self.dropout7_lr(lr_out)
+        lr_out = self.fc8_lr(lr_out)
+
+        feature_hr = {}
+        feature_hr['conv1'] = hr_conv1
+        feature_hr['conv2'] = hr_conv2
+        feature_hr['conv3'] = hr_conv3
+        feature_hr['conv4'] = hr_conv4
+        feature_hr['conv5'] = hr_conv5
+
+        feature_lr = {}
+        feature_lr['conv1'] = lr_conv1
+        feature_lr['conv2'] = lr_conv2
+        feature_lr['conv3'] = lr_conv3
+        feature_lr['conv4'] = lr_conv4
+        feature_lr['conv5'] = lr_conv5
+
+        return hr_out, lr_out, feature_hr, feature_lr
+    def create_network(self):
+        self.convs_hr = []
+        self.convs_shared = []
+        self.convs_lr = []
+
+        for i, (r, rr) in enumerate(zip(self.ratios, self.remaining_ratios)):
+            self.convs_hr.append(self.init_layer(nn.Conv2d(self.in_channels[i], int(self.out_channels[i] * rr), kernel_size=self.kernel_size[i], stride =self.stride[i], groups = self.groups[i], padding = self.padding[i])))
+            self.convs_shared.append(self.init_layer(nn.Conv2d(self.in_channels[i], int(self.out_channels[i] * r), kernel_size=self.kernel_size[i], stride =self.stride[i], groups = self.groups[i], padding = self.padding[i])))
+            self.convs_lr.append(self.init_layer(nn.Conv2d(self.in_channels[i], int(self.out_channels[i] * rr), kernel_size=self.kernel_size[i], stride =self.stride[i], groups = self.groups[i], padding = self.padding[i])))
+
+        self.convs_hr = nn.ModuleList(self.convs_hr)
+        self.convs_lr = nn.ModuleList(self.convs_lr)
+        self.convs_shared = nn.ModuleList(self.convs_shared)
+
+        self.relu1 = nn.ReLU(inplace=True)
+        self.norm1 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
+        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+
+        self.relu2 = nn.ReLU(inplace=True)
+        self.norm2 = nn.LocalResponseNorm(size=4, alpha=2e-05, beta=0.75, k=1.0)
+        self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2)
+
+        self.relu3 = nn.ReLU(inplace=True)
+
+        self.relu4 = nn.ReLU(inplace=True)
+
+        self.relu5 = nn.ReLU(inplace=True)
+        self.pool5 = nn.MaxPool2d(kernel_size=3, stride=2)
+
+        self.fc6_hr = self.init_layer(nn.Linear(256 * 6 * 6, 4096))
+        self.relu6_hr = nn.ReLU(inplace=True)
+        self.dropout6_hr = nn.Dropout(p=self.KEEP_PROB)
+
+        self.fc7_hr = self.init_layer(nn.Linear(4096,4096))
+        self.relu7_hr = nn.ReLU(inplace=True)
+        self.dropout7_hr = nn.Dropout(p=self.KEEP_PROB)
+
+        self.fc8_hr = self.init_layer(nn.Linear(4096, self.NUM_CLASSES))
+
+        self.fc6_lr = self.init_layer(nn.Linear(256 * 6 * 6, 4096))
+        self.relu6_lr = nn.ReLU(inplace=True)
+        self.dropout6_lr = nn.Dropout(p=self.KEEP_PROB)
+
+        self.fc7_lr = self.init_layer(nn.Linear(4096,4096))
+        self.relu7_lr = nn.ReLU(inplace=True)
+        self.dropout7_lr = nn.Dropout(p=self.KEEP_PROB)
+
+        self.fc8_lr = self.init_layer(nn.Linear(4096, self.NUM_CLASSES))
+
+    def init_layer(self, net):
+        nn.init.xavier_uniform_(net.weight)
+        nn.init.constant_(net.bias, 0.0)
+
+        return net
+class DetailGenerator(nn.Module):
+    def __init__(self):
+        self.in_channels = [3, 96, 256, 384, 384]
+        self.out_channels = [96, 256, 384, 384, 256]
+        self.kernel_size= [11, 5, 3, 3 ,3]
+        self.padding = [0, 2 ,1 ,1 ,1]
+        self.stride = [4, 1, 1, 1, 1]
+        self.groups = [1, 2, 1, 2, 2]
+        self.dropout_ratio = 0.5
+        self.numclass = 200
+
+        self.create_network()
+    def forward(self, x):
+        pass
+    def create_network(self):
+        self.encoder = []
+        for i in range(len(self.in_channels)):
+            self.encoder.append(self.init_layer(nn.Conv2d(self.in_channels[i], int(self.out_channels[i] * rr), kernel_size=self.kernel_size[i], stride =self.stride[i], groups = self.groups[i], padding = self.padding[i])))
+    def init_layer(self):
+        nn.init.xavier_uniform_(net.weight)
+        nn.init.constant_(net.bias, 0.0)
+
+        return net
