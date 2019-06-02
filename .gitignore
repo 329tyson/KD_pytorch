@@ -14,3 +14,6 @@ data/
 *.sh
 *.md
 *.log
+*.csv
+*.txt
+TestImages/
