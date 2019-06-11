@@ -21,6 +21,8 @@ class Dataset(data.Dataset):
         self.RATIO      = low_ratio
         self.isKD       = KD_flag
 
+        self.STYLIZED_PATH = '/home/tyson/cv/KD_pytorch/Stylized-CUB/images'
+
         if self.DATASET.lower() == 'cub':
             self.load_csv()
         elif self.DATASET.lower() == 'stanford':
@@ -89,14 +91,23 @@ class Dataset(data.Dataset):
                 self.Bbox.append([int(row[1]), int(row[2]), int(row[3]), int(row[4])])
                 self.labels.append(int(row[5]))
 
+                # add Stylized CUB dataset
+                if 'val' not in self.ANNOTATION:
+                    self.filePath.append(self.STYLIZED_PATH + '/' + row[0])
+                    self.Bbox.append([int(row[1]), int(row[2]), int(row[3]), int(row[4])])
+                    self.labels.append(int(row[5]))
+
     def transform(self, img_path, x_, y_, w_, h_):
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
         # b, g, r = cv2.split(image)
         # image = cv2.merge([r,g,b])
-        if self.DATASET.lower() == 'cub':
+        if self.DATASET.lower() == 'cub' and 'Stylized' not in img_path:
             image = image[y_:y_+h_, x_:x_+w_]
         else:
-            image = image[y_:h_, x_:w_]
+            pass
+            # for stanford cars dataset
+            # image = image[y_:h_, x_:w_]
+
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
         image = image - self.IMG_MEAN
 
@@ -135,10 +146,12 @@ class Dataset(data.Dataset):
 
     def generateTest(self, img_path, x_, y_, w_, h_):
         image = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        if self.DATASET.lower() == 'cub':
+        if self.DATASET.lower() == 'cub' and 'Stylized' not in img_path:
             image = image[y_:y_+h_, x_:x_+w_]
         else:
-            image = image[y_:h_, x_:w_]
+            pass
+            # for stanford cars dataset
+            # image = image[y_:h_, x_:w_]
         image = cv2.resize(image, (256,256), interpolation=cv2.INTER_CUBIC)
         image = image - self.IMG_MEAN
 

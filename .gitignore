@@ -17,3 +17,5 @@ data/
 *.csv
 *.txt
 TestImages/
+bbox_images/
+Stylized-CUB/

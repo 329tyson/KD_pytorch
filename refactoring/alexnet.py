@@ -135,6 +135,8 @@ class AlexNet(nn.Module):
 
     def finetuning_params(self):
         ret = self.get_conv_list()
+        ret.append(self.fc6)
+        ret.append(self.fc7)
 
         for i in range(len(ret)):
             for j in ret[i].modules():

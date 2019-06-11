@@ -3,6 +3,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.utils as vutils
+import torch.optim as optim
 from tqdm import tqdm
 from logger import AverageMeter
 
@@ -20,17 +21,34 @@ class Trainer(object):
         '''
         self.net        = kwargs['network']
         self.lr         = kwargs['lr']
-        self.optimizer  = kwargs['optimizer']
         self.logger     = kwargs['logger']
         self.writer     = kwargs['writer']
         self.lossfunc   = kwargs['lossfunc']
         self.val_period = kwargs['val_period']
-        self.val_train  = False
+        self.val_train  = True
         self.losses     = []
 
         self.train_loader      = kwargs['train_loader']
         self.eval_train_loader = kwargs['eval_train_loader']
         self.validation_loader = kwargs['validation_loader']
+
+        self.optimizer= optim.SGD(
+            [{'params': self.net.finetuning_params()},
+             {'params': self.net.fc8.parameters()   , 'lr': self.lr * 10}],
+            lr=self.lr,
+            momentum = 0.9,
+            weight_decay = 0.0005)
+        # self.optimizer= optim.Adam(
+            # [{'params': self.net.finetuning_params()},
+             # {'params': self.net.fc8.parameters()   , 'lr': self.lr * 10}],
+            # lr=self.lr,
+            # weight_decay = 0.0005
+            # )
+
+
+    @classmethod
+    def LogClassName(cls):
+        return str(cls.__name__)
 
     def write_epoch(self, epoch, train_acc, valid_acc):
         self.logger.iteration(losses = self.losses, EPOCH = str(epoch + 1), TRAIN_ACC= str(train_acc), VALID_ACC= str(valid_acc))
@@ -100,7 +118,10 @@ class Trainer(object):
         return pbar
 
     def train(self, epochs, lr_decay):
+        # self.test()
+        self.logger.message('\nExecuting {} class\n'.format(self.LogClassName()))
         gtloss = AverageMeter('GTloss')
+        highest = 0.
         self.losses.append(gtloss)
 
         for epoch in range(epochs):
@@ -112,8 +133,8 @@ class Trainer(object):
             for i, (x, y) in pbar:
                 x = self.prepX(x)
                 y = self.prepY(y)
-                # if i == 0 :
-                    # self.writer.plot_image(images = x, title = 'HR', epoch = epoch)
+                if i == 0 :
+                    self.writer.plot_image(images = x, title = 'HR', epoch = epoch)
 
                 self.optimizer.zero_grad()
                 output = self.output(self.net(x))
@@ -134,7 +155,35 @@ class Trainer(object):
 
             self.writer.plot_acc({'train_acc' : train_acc, 'valid_acc' : valid_acc}, epoch)
             self.write_epoch(epoch, train_acc, valid_acc)
+            if highest < valid_acc :
+                highest = valid_acc
             print '\n'
+        return highest
+
+    def test(self):
+        self.logger.message('\nExecuting Test run for {}\n'.format(self.LogClassName()))
+        try:
+            for epoch in range(1):
+                pbar = tqdm(self.train_loader)
+                vbar = tqdm(self.validation_loader)
+
+                for x,y in pbar:
+                    x = self.prepX(x)
+                    y = self.prepY(y)
+                    output = self.output(self.net(x))
+                    loss = self.cost(output, y)
+                    break
+
+                for x,y in vbar:
+                    x = torch.squeeze(x)
+                    x = self.prepX(x)
+                    y = self.prepY(y)
+                    output = self.output(self.net(x))
+                    break
+        except:
+            self.logger.message('\tError occured running test! Exitting program')
+            exit(1)
+        return True
 
 class SingleResTrainer(Trainer):
     def __init__(self, **kwargs):
@@ -154,8 +203,10 @@ class KDTrainer(SingleResTrainer):
         return self.loss_for_kd(F.log_softmax(s_output / self.temperature, dim=1), F.softmax(t_output / self.temperature, dim=1))
 
     def train(self, epochs, lr_decay):
-        GTloss = AverageMeter('GTloss')
-        KDloss = AverageMeter('KDloss')
+        self.logger.message('\nExecuting {} class\n'.format(self.LogClassName()))
+        GTloss  = AverageMeter('GTloss')
+        KDloss  = AverageMeter('KDloss')
+        highest = 0.
         self.losses.append(GTloss)
         self.losses.append(KDloss)
         for epoch in range(epochs):
@@ -196,7 +247,10 @@ class KDTrainer(SingleResTrainer):
             valid_acc = self.validate(epoch, self.validation_loader)
             self.writer.plot_acc({'train_acc' : train_acc, 'valid_acc' : valid_acc}, epoch)
             self.write_epoch(epoch, train_acc, valid_acc)
+            if highest < valid_acc :
+                highest = valid_acc
             print '\n'
+        return highest
 
 class FeatureMSETrainer(KDTrainer):
     def __init__(self, **kwargs):
@@ -214,10 +268,12 @@ class FeatureMSETrainer(KDTrainer):
 
 
     def train(self, epochs, lr_decay):
+        self.logger.message('\nExecuting {} class\n'.format(self.LogClassName()))
         self.logger.message('Feature regression on {}'.format(self.regression_layers))
-        GTloss = AverageMeter('GTloss')
-        KDloss = AverageMeter('KDloss')
-        FTloss = AverageMeter('FTloss')
+        GTloss  = AverageMeter('GTloss')
+        KDloss  = AverageMeter('KDloss')
+        FTloss  = AverageMeter('FTloss')
+        highest = 0.
         self.losses.append(GTloss)
         self.losses.append(KDloss)
         self.losses.append(FTloss)
@@ -269,6 +325,9 @@ class FeatureMSETrainer(KDTrainer):
             self.writer.plot_acc({'train_acc' : train_acc, 'valid_acc' : valid_acc}, epoch)
             self.write_epoch(epoch, train_acc, valid_acc)
             print '\n'
+            if highest < valid_acc:
+                highest = valid_acc
+        return highest
 
 class GradientMSETrainer(FeatureMSETrainer):
     def __init__(self, **kwargs):
@@ -329,3 +388,60 @@ class GradientMSETrainer(FeatureMSETrainer):
             elif str(i+1) in self.regression_layers:
                 loss += super(GradientMSETrainer, self).FTcost(t_features, s_features)
         return loss
+
+class FitNetTrainer(FeatureMSETrainer):
+    def __init__(self, **kwargs):
+        super(FitNetTrainer, self).__init__(**kwargs)
+
+        self.weight = 0.05
+        self.optimizer= optim.SGD(
+            [{'params': self.net.conv1.parameters()},
+             {'params': self.net.conv2.parameters()},
+             {'params': self.net.conv3.parameters()},
+             {'params': self.net.fc8.parameters()   , 'lr': self.lr * 10}],
+            lr=self.lr,
+            momentum = 0.9,
+            weight_decay = 0.0005)
+
+
+    def train(self, epochs, lr_decay):
+        self.logger.message('\nExecuting {} class\n'.format(self.LogClassName()))
+        self.logger.message('Feature regression on {}'.format(self.regression_layers))
+        FTloss  = AverageMeter('FTloss')
+        highest = 0.
+        self.losses.append(FTloss)
+        for epoch in range(epochs):
+            self.net.train()
+            self.lr_decay(epoch, lr_decay)
+            FTloss.reset()
+            pbar = self.getPbar(self.train_loader, epoch)
+
+            for i, (x, x_low, y) in pbar:
+                x     = self.prepX(x)
+                x_low = self.prepX(x_low)
+                y     = self.prepY(y)
+
+                self.optimizer.zero_grad()
+                t_output, t_features = self.teacher_net(x)
+                s_output, s_features = self.net(x_low)
+
+                ftloss = self.FTcost(t_features, s_features) * self.weight
+
+                FTloss.update(ftloss.item(), x.size(0))
+                loss = ftloss
+                pbar.postfix[1]['value'] = loss.item()
+
+                loss.backward()
+                self.optimizer.step()
+            self.write_iter(epoch)
+            self.writer.plot(self.losses, epoch)
+            if (epoch + 1) % self.val_period > 0:
+                continue
+            train_acc = self.validate(epoch, self.eval_train_loader) if self.val_train is True else 0.
+            valid_acc = self.validate(epoch, self.validation_loader)
+            self.writer.plot_acc({'train_acc' : train_acc, 'valid_acc' : valid_acc}, epoch)
+            self.write_epoch(epoch, train_acc, valid_acc)
+            print '\n'
+            if highest < valid_acc:
+                highest = valid_acc
+        return highest

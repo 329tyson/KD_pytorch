@@ -1,4 +1,5 @@
 from trainers import SingleResTrainer
+from trainers import FitNetTrainer
 from trainers import KDTrainer
 from trainers import FeatureMSETrainer
 from trainers import GradientMSETrainer
@@ -11,7 +12,6 @@ from logger import AverageMeter
 from plot import Plotter
 
 import datetime
-import torch.optim as optim
 import torch
 import torch.nn as nn
 import os
@@ -20,19 +20,12 @@ import numpy as np
 
 if __name__ == '__main__':
     args = parse()
-    writerName = '_'.join(('runs/',datetime.datetime.now().strftime('%mm-%dd'), args.message))
+    writerName = '_'.join(('runs/',datetime.datetime.now().strftime('%m-%d'), args.message))
 
     net = AlexNet(0.5, args.classes, ['fc8'])
     teacher_net = AlexNet(0.5, args.classes, ['fc8'])
     load_weight(net, args.pretrain_path)
     load_weight(teacher_net, args.pretrain_path)
-
-    optimizer= optim.SGD(
-        [{'params': net.finetuning_params()},
-         {'params': net.fc8.parameters()   , 'lr': args.lr * 10}],
-        lr=args.lr,
-        momentum = 0.9,
-        weight_decay = 0.0005)
 
     dataloaders = generate_dataset(
         dataset          = args.dataset,
@@ -41,7 +34,8 @@ if __name__ == '__main__':
         annotation_val   = args.annotation_val,
         image_path       = args.data,
         low_ratio        = args.low_ratio,
-        is_KD            = args.kd
+        is_KD            = args.kd,
+        is_fitnet        = args.fitnet
         )
 
     logger = Logger(
@@ -54,7 +48,6 @@ if __name__ == '__main__':
 
     SingleTrainer = SingleResTrainer(
         network           = net,
-        optimizer         = optimizer,
         lr                = args.lr,
         logger            = logger,
         writer            = writer,
@@ -70,7 +63,6 @@ if __name__ == '__main__':
         temperature       = args.kd_temperature,
         kdlossfunc        = nn.KLDivLoss(),
         network           = net,
-        optimizer         = optimizer,
         lr                = args.lr,
         logger            = logger,
         writer            = writer,
@@ -84,10 +76,25 @@ if __name__ == '__main__':
         teacher           = teacher_net,
         temperature       = args.kd_temperature,
         regression_layers = args.rg_layers,
-        ftlossfunc       = nn.MSELoss(),
+        ftlossfunc        = nn.MSELoss(),
         kdlossfunc        = nn.KLDivLoss(),
         network           = net,
-        optimizer         = optimizer,
+        lr                = args.lr,
+        logger            = logger,
+        writer            = writer,
+        lossfunc          = nn.CrossEntropyLoss(),
+        val_period        = args.val_period,
+        train_loader      = dataloaders[0],
+        eval_train_loader = dataloaders[1],
+        validation_loader = dataloaders[2])
+
+    FitNetBaseline = FitNetTrainer(
+        teacher           = teacher_net,
+        temperature       = args.kd_temperature,
+        regression_layers = args.rg_layers,
+        ftlossfunc        = nn.MSELoss(),
+        kdlossfunc        = nn.KLDivLoss(),
+        network           = net,
         lr                = args.lr,
         logger            = logger,
         writer            = writer,
@@ -105,7 +112,6 @@ if __name__ == '__main__':
         ftlossfunc        = nn.MSELoss(),
         kdlossfunc        = nn.KLDivLoss(),
         network           = net,
-        optimizer         = optimizer,
         lr                = args.lr,
         logger            = logger,
         writer            = writer,
@@ -115,11 +121,20 @@ if __name__ == '__main__':
         eval_train_loader = dataloaders[1],
         validation_loader = dataloaders[2])
 
-    if args.kd is False:
-        SingleTrainer.train(args.epochs, args.lr_decay)
+    if args.kd is False and args.fitnet is False:
+        acc = SingleTrainer.train(args.epochs, args.lr_decay)
+
     elif len(args.rg_layers) > 0 and len(args.grad_layers) > 0:
-        GradientMSEBaseline.train(args.epochs, args.lr_decay)
-    elif len(args.rg_layers) > 0:
-        FeatureMSEBaseline.train(args.epochs, args.lr_decay)
+        acc = GradientMSEBaseline.train(args.epochs, args.lr_decay)
+
+    elif len(args.rg_layers) > 0 and args.fitnet is False:
+        acc = FeatureMSEBaseline.train(args.epochs, args.lr_decay)
+
+    elif len(args.rg_layers) > 0 and args.fitnet is True:
+        acc = FitNetBaseline.train(args.epochs, args.lr_decay)
+
     else:
-        KDBaseline.train(args.epochs, args.lr_decay)
+        acc = KDBaseline.train(args.epochs, args.lr_decay)
+
+    if args.save is True:
+        torch.save(net.state_dict(), '_'.join(('models/',datetime.datetime.now().strftime('%m-%d'), args.message, str(acc) + '.pt')))

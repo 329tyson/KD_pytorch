@@ -100,6 +100,7 @@ def generate_dataset(
     image_path,
     low_ratio,
     is_KD = False,
+    is_fitnet = False,
     ):
     # Training Params
     params = {'batch_size': batch_size,
@@ -117,6 +118,7 @@ def generate_dataset(
                'num_workers': 6,
                'drop_last' : True}
 
+    is_KD = is_KD | is_fitnet
     if dataset.lower() == 'cub':
         #generate CUB datasets
         print('\t generating CUB dataset')
